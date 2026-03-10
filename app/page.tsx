@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef, type FormEvent } from "react";
 import type {
   AppUser,
   AppTab,
@@ -30,6 +30,94 @@ interface ParsedSection {
   lines: string[];
 }
 
+type SectionType = ParsedSection["type"];
+
+interface EditSongBlock {
+  label: string;
+  type: SectionType;
+  text: string;
+}
+
+function detectSectionMeta(firstLine: string): { label: string; type: SectionType; stanzaNumber?: number } {
+  const line = firstLine.trim();
+  const stanzaMatch = line.match(/^(\d+)\.\s/);
+  if (stanzaMatch) {
+    const stanzaNumber = Number(stanzaMatch[1]);
+    return { label: `STROFA ${stanzaNumber}`, type: "strofa", stanzaNumber };
+  }
+
+  const strofaMatch = line.match(/^strofa\s*(\d+)?\s*:?/i);
+  if (strofaMatch) {
+    const stanzaNumber = strofaMatch[1] ? Number(strofaMatch[1]) : undefined;
+    return {
+      label: stanzaNumber ? `STROFA ${stanzaNumber}` : "STROFA",
+      type: "strofa",
+      stanzaNumber,
+    };
+  }
+
+  if (/^(r\s*\/?:|ritornello\b)/i.test(line)) return { label: "RITORNELLO", type: "ritornello" };
+  if (/^(c\s*\/?:|coro\b|chorus\b)/i.test(line)) return { label: "CORO", type: "chorus" };
+  if (/^bridge\b/i.test(line)) return { label: "BRIDGE", type: "bridge" };
+  if (/^intro\b/i.test(line)) return { label: "INTRO", type: "intro" };
+  if (/^outro\b/i.test(line)) return { label: "OUTRO", type: "outro" };
+
+  return { label: "", type: "other" };
+}
+
+function parseEditBlocks(text: string): EditSongBlock[] {
+  if (!text.trim()) return [];
+
+  const blocks = text.split(/\n\s*\n/).filter((b) => b.trim());
+  return blocks.map((block, index) => {
+    const trimmed = block.trim();
+    const firstLine = trimmed.split("\n")[0]?.trim() || "";
+    const meta = detectSectionMeta(firstLine);
+
+    return {
+      label: meta.label || `SEZIONE ${index + 1}`,
+      type: meta.type,
+      text: trimmed,
+    };
+  });
+}
+
+function getNextStanzaNumber(blocks: EditSongBlock[]): number {
+  const maxStanza = blocks.reduce((max, block) => {
+    const fromText = block.text.trim().match(/^(\d+)\.\s/);
+    if (fromText) return Math.max(max, Number(fromText[1]));
+
+    const fromLabel = block.label.match(/STROFA\s+(\d+)/i);
+    if (fromLabel) return Math.max(max, Number(fromLabel[1]));
+
+    return max;
+  }, 0);
+
+  return maxStanza + 1;
+}
+
+function createEditBlock(type: SectionType, stanzaNumber = 1): EditSongBlock {
+  if (type === "strofa") {
+    return { label: `STROFA ${stanzaNumber}`, type, text: `${stanzaNumber}. ` };
+  }
+  if (type === "ritornello") {
+    return { label: "RITORNELLO", type, text: "R /: " };
+  }
+  if (type === "chorus") {
+    return { label: "CORO", type, text: "C /: " };
+  }
+  if (type === "bridge") {
+    return { label: "BRIDGE", type, text: "Bridge: " };
+  }
+  if (type === "intro") {
+    return { label: "INTRO", type, text: "Intro: " };
+  }
+  if (type === "outro") {
+    return { label: "OUTRO", type, text: "Outro: " };
+  }
+  return { label: "SEZIONE", type: "other", text: "" };
+}
+
 /**
  * Parse song text into labeled sections.
  * Detects patterns like "1. ", "R /: ", "C /: ", "Bridge: ", "Intro: ", "Outro: "
@@ -45,48 +133,33 @@ function parseSections(text: string): ParsedSection[] {
   for (const block of blocks) {
     const trimmed = block.trim();
     const firstLine = trimmed.split("\n")[0].trim();
+    const meta = detectSectionMeta(firstLine);
 
-    let label = "";
-    let type: ParsedSection["type"] = "other";
+    const label = meta.label;
+    const type: ParsedSection["type"] = meta.type;
     let content = trimmed;
 
-    // Check for numbered stanza: starts with "1. ", "2. ", etc.
-    const stanzaMatch = firstLine.match(/^(\d+)\.\s/);
-    if (stanzaMatch) {
-      label = `STROFA ${stanzaMatch[1]}`;
-      type = "strofa";
-      // Remove the number prefix from the first line
-      content = trimmed.replace(/^\d+\.\s*/, "");
+    if (type === "strofa") {
+      content = trimmed.replace(/^(\d+\.\s*|strofa\s*\d*\s*:?\s*)/i, "");
     }
-    // Check for refrain: "R /:" or "R:" at the start
-    else if (/^R\s*\/?:/.test(firstLine)) {
-      label = "RITORNELLO";
-      type = "ritornello";
-      content = trimmed.replace(/^R\s*\/?:\s*/, "").replace(/\s*:\/$/, "");
+    else if (type === "ritornello") {
+      content = trimmed
+        .replace(/^(R\s*\/?:|ritornello\s*:?)\s*/i, "")
+        .replace(/\s*:\/\s*$/, "");
     }
-    // Check for chorus: "C /:" at the start
-    else if (/^C\s*\/?:/.test(firstLine)) {
-      label = "CORO";
-      type = "chorus";
-      content = trimmed.replace(/^C\s*\/?:\s*/, "").replace(/\s*:\/$/, "");
+    else if (type === "chorus") {
+      content = trimmed
+        .replace(/^(C\s*\/?:|coro\s*:?|chorus\s*:?)\s*/i, "")
+        .replace(/\s*:\/\s*$/, "");
     }
-    // Check for bridge
-    else if (/^bridge\s*:/i.test(firstLine)) {
-      label = "BRIDGE";
-      type = "bridge";
-      content = trimmed.replace(/^bridge\s*:\s*/i, "");
+    else if (type === "bridge") {
+      content = trimmed.replace(/^bridge\s*:?\s*/i, "");
     }
-    // Check for intro
-    else if (/^intro\s*:/i.test(firstLine)) {
-      label = "INTRO";
-      type = "intro";
-      content = trimmed.replace(/^intro\s*:\s*/i, "");
+    else if (type === "intro") {
+      content = trimmed.replace(/^intro\s*:?\s*/i, "");
     }
-    // Check for outro
-    else if (/^outro\s*:/i.test(firstLine)) {
-      label = "OUTRO";
-      type = "outro";
-      content = trimmed.replace(/^outro\s*:\s*/i, "");
+    else if (type === "outro") {
+      content = trimmed.replace(/^outro\s*:?\s*/i, "");
     }
 
     sections.push({
@@ -134,11 +207,17 @@ function SongSections({ text }: { text: string }) {
 export default function Home() {
   // State
   const [selectedUser, setSelectedUser] = useState<AppUser>(USERS[0]);
+  const [loginUser, setLoginUser] = useState<AppUser>(USERS[0]);
   const [activeTab, setActiveTab] = useState<AppTab>("indice");
   const [songs, setSongs] = useState<Song[]>([]);
   const [selectedSong, setSelectedSong] = useState<Song | null>(null);
   const [darkMode, setDarkMode] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [authReady, setAuthReady] = useState(false);
+  const [isUnlocked, setIsUnlocked] = useState(false);
+  const [authPassword, setAuthPassword] = useState("");
+  const [authSubmitting, setAuthSubmitting] = useState(false);
+  const [authError, setAuthError] = useState("");
 
   // Indice
   const [query, setQuery] = useState("");
@@ -151,6 +230,7 @@ export default function Home() {
   // Song view
   const [fontSizeMode, setFontSizeMode] = useState<"normal" | "large" | "xlarge">("normal");
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [liveSetIds, setLiveSetIds] = useState<string[]>([]);
 
   // Import
   const [importUrl, setImportUrl] = useState("");
@@ -172,12 +252,13 @@ export default function Home() {
   const [editTitle, setEditTitle] = useState("");
   const [editAuthor, setEditAuthor] = useState("");
   const [editKey, setEditKey] = useState("");
-  const [editText, setEditText] = useState("");
+  const [editBlocks, setEditBlocks] = useState<EditSongBlock[]>([]);
   const [saving, setSaving] = useState(false);
 
   // Toast
   const [toast, setToast] = useState("");
   const toastRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const swipeStartRef = useRef<{ x: number; y: number } | null>(null);
 
   const isAdmin = selectedUser.role === "admin";
 
@@ -196,6 +277,73 @@ export default function Home() {
     if (toastRef.current) clearTimeout(toastRef.current);
     toastRef.current = setTimeout(() => setToast(""), 2500);
   }, []);
+
+  // ─── Simple app password gate ───
+  useEffect(() => {
+    try {
+      const unlocked = sessionStorage.getItem("quaderno-auth") === "ok";
+      const storedUser = sessionStorage.getItem("quaderno-user");
+      if (storedUser) {
+        const found = USERS.find((u) => u.name === storedUser);
+        if (found) {
+          setSelectedUser(found);
+          setLoginUser(found);
+        }
+      }
+      setIsUnlocked(unlocked);
+    } catch {
+      // Ignore session storage errors.
+    } finally {
+      setAuthReady(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!isUnlocked) return;
+    try {
+      sessionStorage.setItem("quaderno-user", selectedUser.name);
+    } catch {
+      // Ignore session storage errors.
+    }
+  }, [isUnlocked, selectedUser]);
+
+  const handleUnlock = useCallback(async (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (!authPassword.trim()) return;
+
+    setAuthSubmitting(true);
+    setAuthError("");
+
+    try {
+      const res = await fetch("/api/auth/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password: authPassword }),
+      });
+      const data = await res.json().catch(() => ({} as { error?: string }));
+
+      if (!res.ok) {
+        setAuthError(data.error || "Password non valida");
+        return;
+      }
+
+      const adminUser = USERS.find((u) => u.role === "admin") || USERS[0];
+      try {
+        sessionStorage.setItem("quaderno-auth", "ok");
+        sessionStorage.setItem("quaderno-user", adminUser.name);
+      } catch {
+        // Ignore session storage errors.
+      }
+
+      setSelectedUser(adminUser);
+      setAuthPassword("");
+      setIsUnlocked(true);
+    } catch {
+      setAuthError("Errore di rete");
+    } finally {
+      setAuthSubmitting(false);
+    }
+  }, [authPassword, loginUser]);
 
   // ─── Load songs ───
   const loadSongs = useCallback(async () => {
@@ -301,7 +449,7 @@ export default function Home() {
       const res = await fetch("/api/scrape", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "search", query: searchQuery.trim(), searchType: "all" }),
+        body: JSON.stringify({ action: "search", query: searchQuery.trim(), searchType: "cantece" }),
       });
       const data = await res.json();
       if (!res.ok) { showToast(data.error || "Errore nella ricerca"); return; }
@@ -363,25 +511,81 @@ export default function Home() {
 
   // ─── Edit: start ───
   const startEdit = useCallback((song: Song) => {
+    const parsed = parseEditBlocks(song.text);
     setEditTitle(song.title);
     setEditAuthor(song.author);
     setEditKey(song.key || "");
-    setEditText(song.text);
+    setEditBlocks(parsed.length ? parsed : [createEditBlock("strofa", 1)]);
     setActiveTab("modifica");
   }, []);
+
+  const composeEditText = useCallback((blocks: EditSongBlock[]) => {
+    return blocks
+      .map((block) => block.text.trim())
+      .filter((chunk) => chunk.length > 0)
+      .join("\n\n");
+  }, []);
+
+  const updateEditBlock = useCallback((index: number, value: string) => {
+    setEditBlocks((prev) =>
+      prev.map((block, i) => {
+        if (i !== index) return block;
+
+        const firstLine = value.trim().split("\n")[0]?.trim() || "";
+        const meta = detectSectionMeta(firstLine);
+        return {
+          text: value,
+          type: meta.type === "other" ? block.type : meta.type,
+          label: meta.label || block.label || `SEZIONE ${i + 1}`,
+        };
+      })
+    );
+  }, []);
+
+  const addEditBlock = useCallback((type: SectionType = "strofa") => {
+    setEditBlocks((prev) => {
+      const nextStanza = getNextStanzaNumber(prev);
+      return [...prev, createEditBlock(type, nextStanza)];
+    });
+  }, []);
+
+  const removeEditBlock = useCallback((index: number) => {
+    setEditBlocks((prev) => {
+      if (prev.length <= 1) {
+        const fallback = prev[0] || createEditBlock("strofa", 1);
+        return [{ ...fallback, text: "" }];
+      }
+      return prev.filter((_, i) => i !== index);
+    });
+  }, []);
+
+  const repartitionEditBlocks = useCallback(() => {
+    setEditBlocks((prev) => {
+      const merged = composeEditText(prev);
+      const repartitioned = parseEditBlocks(merged);
+      return repartitioned.length ? repartitioned : [createEditBlock("strofa", 1)];
+    });
+    showToast("Sezioni aggiornate");
+  }, [composeEditText, showToast]);
 
   // ─── Edit: save ───
   const handleEditSave = useCallback(async () => {
     if (!selectedSong) return;
+    const normalizedText = composeEditText(editBlocks);
+    if (!normalizedText.trim()) {
+      showToast("Inserisci il testo della canzone");
+      return;
+    }
+
     setSaving(true);
     try {
-      await updateSong(selectedSong.id, editTitle, editAuthor, editKey || null, editText);
+      await updateSong(selectedSong.id, editTitle, editAuthor, editKey || null, normalizedText);
       showToast("Modifiche salvate!");
-      setSelectedSong({ ...selectedSong, title: editTitle, author: editAuthor, key: editKey || null, text: editText });
+      setSelectedSong({ ...selectedSong, title: editTitle, author: editAuthor, key: editKey || null, text: normalizedText });
       setActiveTab("canzone");
     } catch { showToast("Errore durante il salvataggio"); }
     setSaving(false);
-  }, [selectedSong, editTitle, editAuthor, editKey, editText, updateSong, showToast]);
+  }, [selectedSong, editTitle, editAuthor, editKey, editBlocks, composeEditText, updateSong, showToast]);
 
   // ─── Edit: delete ───
   const handleDelete = useCallback(async () => {
@@ -420,6 +624,67 @@ export default function Home() {
     [songs, showToast]
   );
 
+  const songById = useMemo(() => new Map(songs.map((s) => [s.id, s])), [songs]);
+
+  const liveSongs = useMemo(() => {
+    return liveSetIds
+      .map((id) => songById.get(id))
+      .filter((song): song is Song => Boolean(song));
+  }, [liveSetIds, songById]);
+
+  const currentLiveIndex = useMemo(() => {
+    if (!selectedSong) return -1;
+    return liveSongs.findIndex((song) => song.id === selectedSong.id);
+  }, [selectedSong, liveSongs]);
+
+  const openLiveSet = useCallback((ids: string[], startSongId?: string) => {
+    const valid = ids.filter((id) => songById.has(id));
+    if (!valid.length) return;
+
+    const startId = startSongId && valid.includes(startSongId) ? startSongId : valid[0];
+    const songToOpen = songById.get(startId);
+    if (!songToOpen) return;
+
+    setLiveSetIds(valid);
+    setSelectedSong(songToOpen);
+    setActiveTab("canzone");
+    showToast(`Set live: ${valid.length} canzoni`);
+  }, [songById, showToast]);
+
+  const navigateLive = useCallback((direction: "prev" | "next") => {
+    if (currentLiveIndex < 0) return;
+
+    const targetIndex = direction === "next" ? currentLiveIndex + 1 : currentLiveIndex - 1;
+    const targetSong = liveSongs[targetIndex];
+
+    if (!targetSong) {
+      showToast(direction === "next" ? "Ultima canzone del set" : "Prima canzone del set");
+      return;
+    }
+
+    setSelectedSong(targetSong);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }, [currentLiveIndex, liveSongs, showToast]);
+
+  const handleSongTouchStart = useCallback((e: React.TouchEvent<HTMLElement>) => {
+    const touch = e.touches[0];
+    swipeStartRef.current = { x: touch.clientX, y: touch.clientY };
+  }, []);
+
+  const handleSongTouchEnd = useCallback((e: React.TouchEvent<HTMLElement>) => {
+    if (!swipeStartRef.current || liveSongs.length < 2) return;
+
+    const touch = e.changedTouches[0];
+    const diffX = touch.clientX - swipeStartRef.current.x;
+    const diffY = touch.clientY - swipeStartRef.current.y;
+    swipeStartRef.current = null;
+
+    // Only trigger when horizontal intent is clear.
+    if (Math.abs(diffX) < 70 || Math.abs(diffY) > 55) return;
+    if (diffX < 0) navigateLive("next");
+    else navigateLive("prev");
+  }, [liveSongs.length, navigateLive]);
+
   // ─── Filtered & sorted songs ───
   const filteredSongs = useMemo(() => {
     let result = [...songs];
@@ -449,6 +714,87 @@ export default function Home() {
   const usedKeys = useMemo(() => {
     return [...new Set(songs.map((s) => s.key).filter(Boolean))] as string[];
   }, [songs]);
+  const hasLiveSet = liveSongs.length > 1 && currentLiveIndex >= 0;
+  const isSongFullscreen = isFullscreen && activeTab === "canzone" && !!selectedSong;
+
+  useEffect(() => {
+    setLiveSetIds((prev) => prev.filter((id) => songById.has(id)));
+  }, [songById]);
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && isFullscreen) {
+        setIsFullscreen(false);
+        return;
+      }
+
+      if (activeTab !== "canzone" || !selectedSong || liveSongs.length < 2) return;
+      if (e.key === "ArrowRight") navigateLive("next");
+      if (e.key === "ArrowLeft") navigateLive("prev");
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [activeTab, selectedSong, liveSongs.length, navigateLive, isFullscreen]);
+
+  if (!authReady) {
+    return (
+      <div className="min-h-screen flex items-center justify-center px-6">
+        <div className="spinner" />
+      </div>
+    );
+  }
+
+  if (!isUnlocked) {
+    return (
+      <div className="auth-gate-wrap min-h-screen flex items-center justify-center px-4 py-8">
+        <div className="auth-gate-card card w-full max-w-sm p-6 sm:p-8">
+          <h1 className="title-font text-2xl sm:text-3xl font-bold mb-1 tracking-tight">Quaderno Canzoni</h1>
+          <p className="text-sm muted mb-6">Seleziona come vuoi accedere.</p>
+
+          <div className="flex flex-col gap-3 mb-5">
+            <button
+              onClick={() => {
+                const viewer = USERS.find((u) => u.role === "viewer");
+                if (viewer) {
+                  setSelectedUser(viewer);
+                  try {
+                    sessionStorage.setItem("quaderno-auth", "ok");
+                    sessionStorage.setItem("quaderno-user", viewer.name);
+                  } catch { /* ignore */ }
+                  setIsUnlocked(true);
+                }
+              }}
+              className="w-full py-3 rounded-xl text-sm font-semibold border border-[var(--card-border)] hover:bg-[var(--hover-bg)] transition-all"
+            >
+              Entra come Ospite
+            </button>
+          </div>
+
+          <div className="border-t border-[var(--separator)] pt-5">
+            <p className="text-xs font-semibold muted mb-3 uppercase tracking-wide">Accesso Admin</p>
+            <form onSubmit={handleUnlock} className="space-y-3">
+              <input
+                type="password"
+                value={authPassword}
+                onChange={(e) => setAuthPassword(e.target.value)}
+                placeholder="Password"
+                className="w-full px-4 py-2.5 rounded-xl border text-sm input-field"
+              />
+              {authError && <p className="text-sm text-red-500">{authError}</p>}
+              <button
+                type="submit"
+                disabled={authSubmitting || !authPassword.trim()}
+                className="w-full py-2.5 rounded-xl text-sm font-bold disabled:opacity-50 btn-primary"
+              >
+                {authSubmitting ? "Accesso..." : "Entra come Admin"}
+              </button>
+            </form>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   // ─── RENDER ─────────────────────────────────────────────
 
@@ -461,61 +807,63 @@ export default function Home() {
         </div>
       )}
 
-      <div className={cn(isFullscreen && "fullscreen-mode")}>
+      <div className={cn(isSongFullscreen && "fullscreen-mode")}>
         {/* ─── HEADER ─── */}
-        <header className="no-print sticky top-0 z-40 header-bar">
-          <div className="max-w-4xl mx-auto px-4 py-3 flex items-center gap-3">
-            {activeTab !== "indice" && (
-              <button
-                onClick={() => {
-                  if (activeTab === "modifica") setActiveTab("canzone");
-                  else { setActiveTab("indice"); setIsFullscreen(false); }
-                }}
-                className="p-2 rounded-lg hover:bg-[var(--hover-bg)] transition-colors"
-                aria-label="Indietro"
-              >
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M19 12H5M12 19l-7-7 7-7" />
-                </svg>
-              </button>
-            )}
+        {!isSongFullscreen && (
+          <header className="no-print sticky top-0 z-40 header-bar">
+            <div className="max-w-4xl mx-auto px-4 py-3 flex items-center gap-3">
+              {activeTab !== "indice" && (
+                <button
+                  onClick={() => {
+                    if (activeTab === "modifica") setActiveTab("canzone");
+                    else { setActiveTab("indice"); setIsFullscreen(false); }
+                  }}
+                  className="p-2 rounded-lg hover:bg-[var(--hover-bg)] transition-colors"
+                  aria-label="Indietro"
+                >
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M19 12H5M12 19l-7-7 7-7" />
+                  </svg>
+                </button>
+              )}
 
-            <h1 className="text-lg md:text-xl font-bold tracking-tight flex-1 title-font">
-              {activeTab === "indice" && "Quaderno Canzoni"}
-              {activeTab === "canzone" && (selectedSong?.title || "")}
-              {activeTab === "importa" && "Importa Canzone"}
-              {activeTab === "modifica" && "Modifica"}
-            </h1>
+              <h1 className="text-lg md:text-xl font-bold tracking-tight flex-1 title-font">
+                {activeTab === "indice" && "Quaderno Canzoni"}
+                {activeTab === "canzone" && (selectedSong?.title || "")}
+                {activeTab === "importa" && "Importa Canzone"}
+                {activeTab === "modifica" && "Modifica"}
+              </h1>
 
-            <div className="flex items-center gap-1.5">
-              <button
-                onClick={() => setDarkMode(!darkMode)}
-                className="p-2 rounded-lg hover:bg-[var(--hover-bg)] transition-colors text-sm"
-                aria-label="Tema"
-              >
-                {darkMode ? "\u2600\uFE0F" : "\uD83C\uDF19"}
-              </button>
+              <div className="flex items-center gap-1.5">
+                <button
+                  onClick={() => setDarkMode(!darkMode)}
+                  className="p-2 rounded-lg hover:bg-[var(--hover-bg)] transition-colors text-sm"
+                  aria-label="Tema"
+                >
+                  {darkMode ? "\u2600\uFE0F" : "\uD83C\uDF19"}
+                </button>
 
-              <div className="flex gap-1">
-                {USERS.map((u) => (
-                  <button
-                    key={u.name}
-                    onClick={() => setSelectedUser(u)}
-                    className={cn(
-                      "px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-all",
-                      selectedUser.name === u.name ? "btn-primary" : "hover:bg-[var(--hover-bg)]"
-                    )}
-                  >
-                    {u.name}
-                  </button>
-                ))}
+                <div className="flex gap-1">
+                  {USERS.map((u) => (
+                    <button
+                      key={u.name}
+                      onClick={() => setSelectedUser(u)}
+                      className={cn(
+                        "px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-all",
+                        selectedUser.name === u.name ? "btn-primary" : "hover:bg-[var(--hover-bg)]"
+                      )}
+                    >
+                      {u.name}
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
-          </div>
-        </header>
+          </header>
+        )}
 
         {/* ─── MAIN ─── */}
-        <main className="max-w-4xl mx-auto px-4 pb-24">
+        <main className={cn("max-w-4xl mx-auto px-4 pb-24", isSongFullscreen && "fullscreen-main")}>
 
           {/* ════════════ INDICE ════════════ */}
           {activeTab === "indice" && (
@@ -583,6 +931,12 @@ export default function Home() {
                   {selectMode && selectedIds.size > 0 && (
                     <div className="flex gap-2 items-center">
                       <span className="text-xs font-medium">{selectedIds.size} selezionate</span>
+                      <button
+                        onClick={() => openLiveSet(Array.from(selectedIds))}
+                        className="px-3 py-1.5 rounded-lg text-xs font-semibold border hover:bg-[var(--hover-bg)]"
+                      >
+                        Apri Live ({selectedIds.size})
+                      </button>
                       <button onClick={() => handleExportPdf(Array.from(selectedIds))} className="px-3 py-1.5 rounded-lg text-xs font-semibold btn-primary">
                         Esporta PDF ({selectedIds.size})
                       </button>
@@ -619,6 +973,7 @@ export default function Home() {
                           if (next.has(song.id)) next.delete(song.id); else next.add(song.id);
                           setSelectedIds(next);
                         } else {
+                          setLiveSetIds(filteredSongs.map((s) => s.id));
                           setSelectedSong(song);
                           setActiveTab("canzone");
                         }
@@ -641,7 +996,14 @@ export default function Home() {
 
               {/* Export all */}
               {songs.length > 0 && !selectMode && (
-                <div className="mt-8 text-center no-print">
+                <div className="mt-8 text-center no-print flex items-center justify-center gap-2 flex-wrap">
+                  <button
+                    onClick={() => openLiveSet(filteredSongs.map((s) => s.id))}
+                    disabled={filteredSongs.length === 0}
+                    className="px-6 py-2.5 rounded-xl border text-sm font-semibold hover:bg-[var(--hover-bg)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Avvia Set Live ({filteredSongs.length})
+                  </button>
                   <button onClick={() => handleExportPdf(songs.map((s) => s.id))} className="px-6 py-2.5 rounded-xl border text-sm font-semibold hover:bg-[var(--hover-bg)] transition-colors">
                     Esporta tutto come PDF ({songs.length} canzoni)
                   </button>
@@ -652,77 +1014,150 @@ export default function Home() {
 
           {/* ════════════ CANZONE ════════════ */}
           {activeTab === "canzone" && selectedSong && (
-            <div className="animate-fade-in py-6">
-              {/* Song header - like the PDF */}
-              <div className="song-header">
-                <div className="flex-1">
-                  <h2 className="song-view-title">{selectedSong.title}</h2>
-                  {selectedSong.author && <p className="song-view-author">{selectedSong.author}</p>}
-                </div>
-                {selectedSong.key && <span className="song-view-key">{selectedSong.key}</span>}
-              </div>
+            <div className={cn("animate-fade-in py-4 sm:py-6 song-stage-view", isSongFullscreen && "song-stage-fullscreen")}>
+              {!isSongFullscreen && <div className="song-stage-bg" aria-hidden="true" />}
 
-              {/* Controls bar */}
-              <div className="no-print flex items-center gap-2 flex-wrap mb-6">
-                {/* Font size */}
-                <div className="flex items-center gap-1">
-                  {(["normal", "large", "xlarge"] as const).map((size) => (
+              {!isSongFullscreen && (
+                <>
+                  {/* Song hero */}
+                  <div className="song-hero card">
+                    <div className="song-hero-topline">
+                      <span className="song-hero-chip">Leggio</span>
+                      {hasLiveSet && (
+                        <span className="song-hero-chip song-hero-chip-live">
+                          {currentLiveIndex + 1} / {liveSongs.length}
+                        </span>
+                      )}
+                      {selectedSong.key && <span className="song-hero-key">{selectedSong.key}</span>}
+                    </div>
+                    <h2 className="song-view-title">{selectedSong.title}</h2>
+                    {selectedSong.author && <p className="song-view-author">{selectedSong.author}</p>}
+                  </div>
+
+                  {/* Controls bar */}
+                  <div className="no-print song-toolbar card">
+                    <div className="flex items-center gap-1">
+                      {(["normal", "large", "xlarge"] as const).map((size) => (
+                        <button
+                          key={size}
+                          onClick={() => setFontSizeMode(size)}
+                          className={cn("song-tool-btn", fontSizeMode === size && "btn-primary")}
+                        >
+                          {size === "normal" ? "A" : size === "large" ? "A+" : "A++"}
+                        </button>
+                      ))}
+                    </div>
+
                     <button
-                      key={size}
-                      onClick={() => setFontSizeMode(size)}
-                      className={cn("px-2 py-1 rounded-md text-xs font-semibold transition-colors", fontSizeMode === size ? "btn-primary" : "hover:bg-[var(--hover-bg)]")}
+                      onClick={() => setIsFullscreen(!isFullscreen)}
+                      className="song-tool-icon"
+                      aria-label="Schermo intero"
+                      title="Schermo intero"
                     >
-                      {size === "normal" ? "A" : size === "large" ? "A+" : "A++"}
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        {isFullscreen ? (
+                          <><polyline points="4 14 10 14 10 20" /><polyline points="20 10 14 10 14 4" /><line x1="14" y1="10" x2="21" y2="3" /><line x1="3" y1="21" x2="10" y2="14" /></>
+                        ) : (
+                          <><polyline points="15 3 21 3 21 9" /><polyline points="9 21 3 21 3 15" /><line x1="21" y1="3" x2="14" y2="10" /><line x1="3" y1="21" x2="10" y2="14" /></>
+                        )}
+                      </svg>
                     </button>
-                  ))}
-                </div>
 
-                {/* Fullscreen */}
-                <button
-                  onClick={() => setIsFullscreen(!isFullscreen)}
-                  className="p-2 rounded-lg hover:bg-[var(--hover-bg)] transition-colors"
-                  aria-label="Schermo intero"
-                >
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    {isFullscreen ? (
-                      <><polyline points="4 14 10 14 10 20" /><polyline points="20 10 14 10 14 4" /><line x1="14" y1="10" x2="21" y2="3" /><line x1="3" y1="21" x2="10" y2="14" /></>
-                    ) : (
-                      <><polyline points="15 3 21 3 21 9" /><polyline points="9 21 3 21 3 15" /><line x1="21" y1="3" x2="14" y2="10" /><line x1="3" y1="21" x2="10" y2="14" /></>
+                    <button
+                      onClick={() => handleExportPdf([selectedSong.id])}
+                      className="song-tool-icon"
+                      aria-label="Esporta PDF"
+                      title="Esporta PDF"
+                    >
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" />
+                      </svg>
+                    </button>
+
+                    {hasLiveSet && (
+                      <div className="song-live-inline">
+                        <button
+                          onClick={() => navigateLive("prev")}
+                          className="song-tool-btn"
+                          disabled={currentLiveIndex <= 0}
+                        >
+                          ←
+                        </button>
+                        <span className="song-live-inline-text">
+                          {currentLiveIndex + 1}/{liveSongs.length}
+                        </span>
+                        <button
+                          onClick={() => navigateLive("next")}
+                          className="song-tool-btn"
+                          disabled={currentLiveIndex < 0 || currentLiveIndex >= liveSongs.length - 1}
+                        >
+                          →
+                        </button>
+                      </div>
                     )}
-                  </svg>
-                </button>
 
-                {/* PDF */}
+                    {isAdmin && (
+                      <button onClick={() => startEdit(selectedSong)} className="ml-auto song-tool-btn btn-primary">
+                        Modifica
+                      </button>
+                    )}
+                  </div>
+                </>
+              )}
+
+              {isSongFullscreen && (
                 <button
-                  onClick={() => handleExportPdf([selectedSong.id])}
-                  className="p-2 rounded-lg hover:bg-[var(--hover-bg)] transition-colors"
-                  aria-label="Esporta PDF"
+                  onClick={() => setIsFullscreen(false)}
+                  className="no-print fullscreen-exit"
+                  aria-label="Esci da schermo intero"
                 >
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" />
-                  </svg>
+                  Chiudi
                 </button>
+              )}
 
-                {/* Edit (admin) */}
-                {isAdmin && (
-                  <button onClick={() => startEdit(selectedSong)} className="ml-auto px-3 py-1.5 rounded-lg text-xs font-semibold btn-primary">
-                    Modifica
-                  </button>
+              {/* Song text */}
+              <div
+                className={cn("song-content card", isSongFullscreen && "song-content-fullscreen")}
+                onTouchStart={handleSongTouchStart}
+                onTouchEnd={handleSongTouchEnd}
+              >
+                {isSongFullscreen && (
+                  <div className="song-fullscreen-head">
+                    <h2 className="song-view-title song-fullscreen-title">{selectedSong.title}</h2>
+                    {selectedSong.author && <p className="song-view-author">{selectedSong.author}</p>}
+                    {selectedSong.key && <span className="song-hero-key">{selectedSong.key}</span>}
+                  </div>
                 )}
+                <div className="song-text">
+                  <SongSections text={selectedSong.text} />
+                </div>
               </div>
 
-              {/* Song text - with section labels */}
-              <div className="song-text">
-                <SongSections text={selectedSong.text} />
-              </div>
-
-              {selectedSong.source_url && (
-                <div className="mt-8 no-print">
-                  <a href={selectedSong.source_url} target="_blank" rel="noopener noreferrer" className="text-xs underline muted hover:opacity-100">
-                    Fonte originale
-                  </a>
+              {!isSongFullscreen && hasLiveSet && (
+                <div className="no-print live-dock card">
+                  <button
+                    className="live-dock-btn"
+                    onClick={() => navigateLive("prev")}
+                    disabled={currentLiveIndex <= 0}
+                  >
+                    Precedente
+                  </button>
+                  <div className="live-dock-center">
+                    <div className="live-dock-label">Set Live</div>
+                    <div className="live-dock-count">{currentLiveIndex + 1} di {liveSongs.length}</div>
+                    <div className="live-dock-hint">Swipe orizzontale per cambiare</div>
+                  </div>
+                  <button
+                    className="live-dock-btn live-dock-btn-primary"
+                    onClick={() => navigateLive("next")}
+                    disabled={currentLiveIndex >= liveSongs.length - 1}
+                  >
+                    Successiva
+                  </button>
                 </div>
               )}
+
+
             </div>
           )}
 
@@ -778,14 +1213,9 @@ export default function Home() {
                           disabled={importLoading}
                           className="w-full text-left p-4 rounded-xl border transition-all hover:shadow-md disabled:opacity-50 card"
                         >
-                          <div className="flex items-start gap-3">
-                            <div className="flex-1 min-w-0">
-                              <h3 className="font-bold text-sm leading-snug title-font">{result.title}</h3>
-                              <p className="text-xs mt-0.5 muted">{result.author}</p>
-                            </div>
-                            <span className={cn("flex-shrink-0 px-2 py-0.5 rounded-md text-xs font-bold", result.type === "acorduri" ? "tag-chord" : "tag-lyrics")}>
-                              {result.type === "acorduri" ? "Accordi" : "Testo"}
-                            </span>
+                          <div className="flex-1 min-w-0">
+                            <h3 className="font-bold text-sm leading-snug title-font">{result.title}</h3>
+                            <p className="text-xs mt-0.5 muted">{result.author}</p>
                           </div>
                         </button>
                       ))}
@@ -922,13 +1352,59 @@ export default function Home() {
               </div>
 
               <div className="mb-5">
-                <label className="block text-xs font-semibold mb-1 muted">Testo</label>
-                <textarea
-                  value={editText}
-                  onChange={(e) => setEditText(e.target.value)}
-                  rows={25}
-                  className="w-full px-4 py-3 rounded-xl border text-sm font-mono leading-relaxed input-field resize-y"
-                />
+                <div className="flex items-center gap-2 flex-wrap mb-2">
+                  <label className="block text-xs font-semibold muted flex-1">Testo (diviso per sezioni)</label>
+                  <button
+                    onClick={() => addEditBlock("strofa")}
+                    className="px-2.5 py-1.5 rounded-lg border text-[11px] font-semibold hover:bg-[var(--hover-bg)] transition-colors"
+                  >
+                    + Strofa
+                  </button>
+                  <button
+                    onClick={() => addEditBlock("ritornello")}
+                    className="px-2.5 py-1.5 rounded-lg border text-[11px] font-semibold hover:bg-[var(--hover-bg)] transition-colors"
+                  >
+                    + Ritornello
+                  </button>
+                  <button
+                    onClick={() => addEditBlock("chorus")}
+                    className="px-2.5 py-1.5 rounded-lg border text-[11px] font-semibold hover:bg-[var(--hover-bg)] transition-colors"
+                  >
+                    + Coro
+                  </button>
+                  <button
+                    onClick={repartitionEditBlocks}
+                    className="px-2.5 py-1.5 rounded-lg border text-[11px] font-semibold hover:bg-[var(--hover-bg)] transition-colors"
+                  >
+                    Rileva Sezioni
+                  </button>
+                </div>
+
+                <div className="space-y-3">
+                  {editBlocks.map((block, idx) => (
+                    <div key={`${idx}-${block.label}`} className="edit-song-block card p-3 rounded-xl">
+                      <div className="flex items-center justify-between gap-2 mb-2">
+                        <span className={cn("song-section-label", `section-${block.type}`)}>
+                          {block.label || `SEZIONE ${idx + 1}`}
+                        </span>
+                        <button
+                          onClick={() => removeEditBlock(idx)}
+                          className="px-2.5 py-1 rounded-md border text-[11px] font-semibold hover:bg-[var(--hover-bg)] transition-colors"
+                        >
+                          Rimuovi
+                        </button>
+                      </div>
+
+                      <textarea
+                        value={block.text}
+                        onChange={(e) => updateEditBlock(idx, e.target.value)}
+                        rows={Math.min(16, Math.max(4, block.text.split("\n").length + 1))}
+                        className="edit-section-textarea w-full rounded-xl border px-3 py-2.5 text-sm leading-relaxed input-field resize-y"
+                        placeholder="Inserisci il testo della sezione..."
+                      />
+                    </div>
+                  ))}
+                </div>
               </div>
 
               <div className="flex gap-3">
