@@ -54,6 +54,13 @@ export interface ScrapedSong {
   chordContent: string;
 }
 
+export interface SearchResult {
+  url: string;
+  title: string;
+  author: string;
+  type: "acorduri" | "cantece";
+}
+
 export type AppTab = "indice" | "canzone" | "importa" | "modifica";
 
 export type SortMode = "title" | "author" | "key";

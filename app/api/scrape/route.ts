@@ -1,9 +1,26 @@
 import { NextRequest, NextResponse } from "next/server";
-import { scrapeSong } from "@/lib/scraper";
+import { scrapeSong, searchSongs } from "@/lib/scraper";
 
 export async function POST(request: NextRequest) {
   try {
-    const { url } = await request.json();
+    const body = await request.json();
+
+    // ─── Search mode ───
+    if (body.action === "search") {
+      const { query, searchType } = body;
+      if (!query || typeof query !== "string" || query.trim().length < 2) {
+        return NextResponse.json(
+          { error: "Termenul de cautare trebuie sa aiba cel putin 2 caractere" },
+          { status: 400 }
+        );
+      }
+
+      const results = await searchSongs(query.trim(), searchType || "all");
+      return NextResponse.json({ results });
+    }
+
+    // ─── Scrape mode (default) ───
+    const { url } = body;
 
     if (!url || typeof url !== "string") {
       return NextResponse.json(

@@ -6,32 +6,20 @@ import {
   Text,
   View,
   StyleSheet,
-  Font,
   renderToBuffer,
 } from "@react-pdf/renderer";
 import { getSupabase } from "@/lib/supabase";
 import type { Song, SongSection, SongWithSections } from "@/lib/types";
 
-// ─── Fonts ─────────────────────────────────────────────────
-// Using standard fonts to avoid font loading issues on Vercel
-Font.register({
-  family: "Helvetica",
-  fonts: [
-    { src: "Helvetica" },
-    { src: "Helvetica-Bold", fontWeight: "bold" },
-    { src: "Helvetica-Oblique", fontStyle: "italic" },
-  ],
-});
-
-// ─── Styles ────────────────────────────────────────────────
+// ─── Styles (clean layout matching CantariOltenia.pdf) ─────
 const styles = StyleSheet.create({
   page: {
-    paddingTop: 40,
+    paddingTop: 50,
     paddingBottom: 50,
-    paddingHorizontal: 45,
+    paddingHorizontal: 50,
     fontFamily: "Helvetica",
     fontSize: 11,
-    color: "#1a1a2e",
+    color: "#000000",
   },
   // Cover page
   coverPage: {
@@ -43,178 +31,205 @@ const styles = StyleSheet.create({
     fontFamily: "Helvetica",
   },
   coverTitle: {
-    fontSize: 36,
+    fontSize: 28,
     fontWeight: "bold",
-    color: "#6366f1",
-    marginBottom: 12,
+    color: "#000000",
+    marginBottom: 16,
     textAlign: "center",
+    textTransform: "uppercase",
+    letterSpacing: 1,
   },
   coverSubtitle: {
     fontSize: 14,
-    color: "#6b7280",
+    color: "#333333",
     textAlign: "center",
     marginBottom: 40,
   },
   coverMeta: {
     fontSize: 10,
-    color: "#9ca3af",
+    color: "#666666",
     textAlign: "center",
   },
   // Index page
   indexTitle: {
-    fontSize: 22,
+    fontSize: 18,
     fontWeight: "bold",
-    marginBottom: 20,
-    color: "#6366f1",
+    marginBottom: 16,
+    textAlign: "center",
+    textTransform: "uppercase",
   },
   indexRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "flex-end",
-    paddingVertical: 4,
+    paddingVertical: 3,
     borderBottomWidth: 0.5,
-    borderBottomColor: "#e5e7eb",
+    borderBottomColor: "#cccccc",
+  },
+  indexNumber: {
+    fontSize: 9,
+    width: 20,
+    textAlign: "right",
+    marginRight: 8,
   },
   indexSongTitle: {
     fontSize: 10,
-    fontWeight: "bold",
     flex: 1,
-  },
-  indexAuthor: {
-    fontSize: 9,
-    color: "#6b7280",
-    marginLeft: 8,
-    marginRight: 8,
   },
   indexKey: {
     fontSize: 9,
-    color: "#6366f1",
     fontWeight: "bold",
-    marginRight: 8,
-    width: 25,
+    marginLeft: 8,
+    width: 30,
     textAlign: "center",
   },
   indexPage: {
     fontSize: 9,
-    color: "#6b7280",
+    color: "#666666",
     width: 20,
     textAlign: "right",
   },
-  // Song pages
-  songTitle: {
-    fontSize: 20,
-    fontWeight: "bold",
-    marginBottom: 4,
-    color: "#1a1a2e",
+  // Song header
+  songHeaderRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    marginBottom: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: "#000000",
+    paddingBottom: 8,
   },
-  songAuthor: {
-    fontSize: 10,
-    color: "#6b7280",
-    marginBottom: 2,
+  songTitle: {
+    fontSize: 16,
+    fontWeight: "bold",
+    color: "#000000",
+    flex: 1,
   },
   songKey: {
-    fontSize: 10,
-    color: "#6366f1",
+    fontSize: 12,
     fontWeight: "bold",
-    marginBottom: 16,
+    color: "#000000",
+    marginLeft: 12,
   },
+  songAuthor: {
+    fontSize: 9,
+    color: "#444444",
+    marginTop: 2,
+  },
+  // Sections
   sectionContainer: {
-    marginBottom: 14,
+    marginBottom: 10,
   },
-  sectionBadge: {
-    fontSize: 8,
+  sectionLabel: {
+    fontSize: 10,
     fontWeight: "bold",
-    color: "#ffffff",
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 10,
-    marginBottom: 5,
-    textTransform: "uppercase",
-    letterSpacing: 0.5,
-    alignSelf: "flex-start",
-  },
-  sectionContent: {
-    paddingLeft: 10,
-    borderLeftWidth: 2,
-    borderLeftColor: "#e5e7eb",
+    marginBottom: 3,
   },
   contentLine: {
     fontSize: 10,
-    lineHeight: 1.8,
-    fontFamily: "Courier",
+    lineHeight: 1.7,
+    fontFamily: "Helvetica",
   },
-  chordText: {
-    color: "#6366f1",
+  indentedLine: {
+    fontSize: 10,
+    lineHeight: 1.7,
+    fontFamily: "Helvetica",
+    paddingLeft: 20,
+  },
+  chordLine: {
+    fontSize: 9,
     fontWeight: "bold",
     fontFamily: "Courier-Bold",
+    color: "#000000",
+    lineHeight: 1.3,
   },
-  normalText: {
-    color: "#1a1a2e",
-    fontFamily: "Courier",
+  lyricLine: {
+    fontSize: 10,
+    fontFamily: "Helvetica",
+    lineHeight: 1.5,
   },
-  // Footer
+  // Footer: page number centered at bottom
   footer: {
     position: "absolute",
     bottom: 25,
-    left: 45,
-    right: 45,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-  footerText: {
-    fontSize: 8,
-    color: "#9ca3af",
+    left: 0,
+    right: 0,
+    textAlign: "center",
   },
   footerPage: {
-    fontSize: 8,
-    color: "#6b7280",
+    fontSize: 9,
+    color: "#666666",
   },
 });
 
-// ─── Section colors ────────────────────────────────────────
-const SECTION_BADGE_COLORS: Record<string, string> = {
-  strofa: "#3b82f6",
-  ritornello: "#f59e0b",
-  bridge: "#8b5cf6",
-  intro: "#10b981",
-  outro: "#ef4444",
-};
-
-const SECTION_BORDER_COLORS: Record<string, string> = {
-  strofa: "#93c5fd",
-  ritornello: "#fcd34d",
-  bridge: "#c4b5fd",
-  intro: "#6ee7b7",
-  outro: "#fca5a5",
-};
-
-// ─── Chord parsing helpers ─────────────────────────────────
-interface TextSegment {
-  text: string;
-  isChord: boolean;
+// ─── Section label formatting (CantariOltenia style) ───────
+// Refrains: "R /:" ... ":/"
+// Stanzas: "1.", "2.", etc.
+function formatSectionLabel(
+  sectionType: string,
+  sectionLabel: string,
+  stanzaNumber: number
+): string {
+  const type = sectionType.toLowerCase();
+  if (type === "ritornello" || type === "refren" || type === "chorus") {
+    return "R /:";
+  }
+  if (type === "bridge") {
+    return "Bridge:";
+  }
+  if (type === "intro") {
+    return "Intro:";
+  }
+  if (type === "outro") {
+    return "Outro:";
+  }
+  // Stanzas get numbered
+  return `${stanzaNumber}.`;
 }
 
-function parseChordLine(line: string): TextSegment[] {
-  const segments: TextSegment[] = [];
+// Check if a section is a refrain type
+function isRefrainType(sectionType: string): boolean {
+  const type = sectionType.toLowerCase();
+  return type === "ritornello" || type === "refren" || type === "chorus";
+}
+
+// ─── Chord line parsing ────────────────────────────────────
+function hasChords(line: string): boolean {
+  return /\[([^\]]+)\]/.test(line);
+}
+
+function splitChordLine(line: string): { chordRow: string; lyricRow: string } {
   const regex = /\[([^\]]+)\]/g;
+  const lyricParts: string[] = [];
+  const chordPositions: { pos: number; chord: string }[] = [];
   let lastIndex = 0;
+  let lyricLength = 0;
   let match;
 
   while ((match = regex.exec(line)) !== null) {
-    if (match.index > lastIndex) {
-      segments.push({ text: line.slice(lastIndex, match.index), isChord: false });
-    }
-    segments.push({ text: match[1], isChord: true });
+    const textBefore = line.slice(lastIndex, match.index);
+    lyricParts.push(textBefore);
+    chordPositions.push({
+      pos: lyricLength + textBefore.length,
+      chord: match[1],
+    });
+    lyricLength += textBefore.length;
     lastIndex = match.index + match[0].length;
   }
-  if (lastIndex < line.length) {
-    segments.push({ text: line.slice(lastIndex), isChord: false });
+
+  const remaining = line.slice(lastIndex);
+  lyricParts.push(remaining);
+  const lyricText = lyricParts.join("");
+
+  let chordRow = "";
+  for (const { pos, chord } of chordPositions) {
+    if (chordRow.length < pos) {
+      chordRow += " ".repeat(pos - chordRow.length);
+    }
+    chordRow += chord;
   }
-  if (segments.length === 0 && line.length === 0) {
-    segments.push({ text: " ", isChord: false });
-  }
-  return segments;
+
+  return { chordRow, lyricRow: lyricText };
 }
 
 // ─── PDF Document Component ───────────────────────────────
@@ -223,57 +238,72 @@ function SongBookDocument({ songs }: { songs: SongWithSections[] }) {
     a.title.localeCompare(b.title, "ro")
   );
 
-  // Page numbers: cover=1, index starts at 2, songs start after index
-  // Index takes ceil(songs.length / 35) pages (approx 35 songs per index page)
-  const indexPages = Math.max(1, Math.ceil(sortedSongs.length / 35));
-  const songStartPage = 1 + indexPages + 1; // cover + index pages + 1
-
   const showCover = sortedSongs.length > 1;
   const showIndex = sortedSongs.length > 1;
+
+  // Calculate page offset for index references
+  const indexPages = Math.max(1, Math.ceil(sortedSongs.length / 40));
+  const songStartPage = (showCover ? 1 : 0) + (showIndex ? indexPages : 0) + 1;
+
+  const pageFooter = React.createElement(
+    View,
+    { style: styles.footer, fixed: true } as Record<string, unknown>,
+    React.createElement(Text, {
+      style: styles.footerPage,
+      render: ({ pageNumber }: { pageNumber: number }) => `${pageNumber}`,
+    } as Record<string, unknown>)
+  );
 
   return React.createElement(
     Document,
     {
       title: "Quaderno Canzoni",
       author: "Quaderno Canzoni",
-      subject: "Raccolta di canzoni con accordi",
     },
-    // Cover page
+
+    // ── Cover page ──
     showCover &&
       React.createElement(
         Page,
         { size: "A4", style: styles.coverPage },
         React.createElement(
           View,
-          { style: { flex: 1, justifyContent: "center", alignItems: "center" } },
+          {
+            style: {
+              flex: 1,
+              justifyContent: "center",
+              alignItems: "center",
+            },
+          },
           React.createElement(
             Text,
             { style: styles.coverTitle },
-            "Quaderno Canzoni"
+            "QUADERNO CANZONI"
           ),
           React.createElement(
             Text,
             { style: styles.coverSubtitle },
-            `${sortedSongs.length} cantece cu acorduri`
+            `${sortedSongs.length} canzoni`
           ),
           React.createElement(
             Text,
             { style: styles.coverMeta },
-            `Generat: ${new Date().toLocaleDateString("ro-RO", {
+            new Date().toLocaleDateString("it-IT", {
               day: "numeric",
               month: "long",
               year: "numeric",
-            })}`
+            })
           )
-        )
+        ),
+        pageFooter
       ),
 
-    // Index page(s)
+    // ── Index page(s) ──
     showIndex &&
       React.createElement(
         Page,
         { size: "A4", style: styles.page },
-        React.createElement(Text, { style: styles.indexTitle }, "Indice"),
+        React.createElement(Text, { style: styles.indexTitle }, "INDICE"),
         React.createElement(
           View,
           null,
@@ -283,13 +313,13 @@ function SongBookDocument({ songs }: { songs: SongWithSections[] }) {
               { key: song.id, style: styles.indexRow },
               React.createElement(
                 Text,
-                { style: styles.indexSongTitle },
-                `${idx + 1}. ${song.title}`
+                { style: styles.indexNumber },
+                `${idx + 1}.`
               ),
               React.createElement(
                 Text,
-                { style: styles.indexAuthor },
-                song.author
+                { style: styles.indexSongTitle },
+                song.title
               ),
               song.key
                 ? React.createElement(
@@ -306,143 +336,169 @@ function SongBookDocument({ songs }: { songs: SongWithSections[] }) {
             )
           )
         ),
-        // Footer
-        React.createElement(
-          View,
-          { style: styles.footer, fixed: true } as any,
-          React.createElement(
-            Text,
-            { style: styles.footerText },
-            "Quaderno Canzoni"
-          ),
-          React.createElement(
-            Text,
-            { style: styles.footerPage, render: ({ pageNumber }: { pageNumber: number }) => `${pageNumber}` } as any
-          )
-        )
+        pageFooter
       ),
 
-    // Song pages
-    ...sortedSongs.map((song) =>
-      React.createElement(
+    // ── Song pages (one per song) ──
+    ...sortedSongs.map((song) => {
+      let stanzaCounter = 0;
+
+      const sortedSections = [...song.sections].sort(
+        (a, b) => a.position - b.position
+      );
+
+      return React.createElement(
         Page,
         { key: song.id, size: "A4", style: styles.page, wrap: true },
-        // Header
+
+        // Song header: title on left, key on right, line underneath
         React.createElement(
           View,
-          { style: { marginBottom: 16 } },
-          React.createElement(Text, { style: styles.songTitle }, song.title),
+          { style: styles.songHeaderRow },
           React.createElement(
-            Text,
-            { style: styles.songAuthor },
-            song.author + (song.album ? ` — ${song.album}` : "")
+            View,
+            { style: { flex: 1 } },
+            React.createElement(Text, { style: styles.songTitle }, song.title),
+            song.author
+              ? React.createElement(
+                  Text,
+                  { style: styles.songAuthor },
+                  song.author + (song.album ? ` - ${song.album}` : "")
+                )
+              : null
           ),
           song.key
-            ? React.createElement(
-                Text,
-                { style: styles.songKey },
-                `Gama: ${song.key}`
-              )
+            ? React.createElement(Text, { style: styles.songKey }, song.key)
             : null
         ),
+
         // Sections
-        ...song.sections
-          .sort((a, b) => a.position - b.position)
-          .map((section, sIdx) =>
-            React.createElement(
-              View,
-              {
-                key: section.id || `s-${sIdx}`,
-                style: styles.sectionContainer,
-                wrap: false,
-              } as any,
-              // Badge
-              React.createElement(
-                View,
-                {
-                  style: {
-                    ...styles.sectionBadge,
-                    backgroundColor:
-                      SECTION_BADGE_COLORS[section.section_type] || "#6b7280",
-                  },
-                },
+        ...sortedSections.map((section, sIdx) => {
+          const isRefrain = isRefrainType(section.section_type);
+          if (!isRefrain && section.section_type === "strofa") {
+            stanzaCounter++;
+          }
+          const label = formatSectionLabel(
+            section.section_type,
+            section.section_label,
+            stanzaCounter
+          );
+
+          const lines = section.content.split("\n");
+          const lineElements: React.ReactNode[] = [];
+
+          for (let li = 0; li < lines.length; li++) {
+            const line = lines[li];
+
+            if (hasChords(line)) {
+              // Split into chord row + lyric row
+              const { chordRow, lyricRow } = splitChordLine(line);
+              lineElements.push(
                 React.createElement(
                   Text,
-                  { style: { color: "#ffffff", fontSize: 8, fontWeight: "bold" } },
-                  section.section_label
+                  {
+                    key: `c-${li}`,
+                    style: isRefrain
+                      ? { ...styles.chordLine, paddingLeft: 30 }
+                      : { ...styles.chordLine, paddingLeft: 20 },
+                  },
+                  chordRow
                 )
-              ),
-              // Content
+              );
+              lineElements.push(
+                React.createElement(
+                  Text,
+                  {
+                    key: `l-${li}`,
+                    style: isRefrain
+                      ? { ...styles.lyricLine, paddingLeft: 30 }
+                      : { ...styles.lyricLine, paddingLeft: 20 },
+                  },
+                  lyricRow || " "
+                )
+              );
+            } else {
+              // Plain text line
+              lineElements.push(
+                React.createElement(
+                  Text,
+                  {
+                    key: `t-${li}`,
+                    style: isRefrain
+                      ? { ...styles.contentLine, paddingLeft: 30 }
+                      : { ...styles.indentedLine },
+                  },
+                  line || " "
+                )
+              );
+            }
+          }
+
+          // For refrains, add closing ":/" marker
+          if (isRefrain) {
+            lineElements.push(
               React.createElement(
-                View,
+                Text,
                 {
+                  key: "refrain-close",
                   style: {
-                    ...styles.sectionContent,
-                    borderLeftColor:
-                      SECTION_BORDER_COLORS[section.section_type] || "#d1d5db",
+                    ...styles.contentLine,
+                    paddingLeft: 30,
+                    fontWeight: "bold",
+                    marginTop: 2,
                   },
                 },
-                ...section.content.split("\n").map((line, lineIdx) => {
-                  const segments = parseChordLine(line);
-                  return React.createElement(
-                    Text,
-                    {
-                      key: `l-${lineIdx}`,
-                      style: styles.contentLine,
-                    },
-                    ...segments.map((seg, segIdx) =>
-                      React.createElement(
-                        Text,
-                        {
-                          key: `seg-${segIdx}`,
-                          style: seg.isChord
-                            ? styles.chordText
-                            : styles.normalText,
-                        },
-                        seg.text
-                      )
-                    )
-                  );
-                })
+                ":/"
               )
-            )
-          ),
-        // Footer
-        React.createElement(
-          View,
-          { style: styles.footer, fixed: true } as any,
-          React.createElement(
-            Text,
-            { style: styles.footerText },
-            "Quaderno Canzoni"
-          ),
-          React.createElement(
-            Text,
-            { style: styles.footerPage, render: ({ pageNumber }: { pageNumber: number }) => `${pageNumber}` } as any
-          )
-        )
-      )
-    )
+            );
+          }
+
+          return React.createElement(
+            View,
+            {
+              key: section.id || `s-${sIdx}`,
+              style: styles.sectionContainer,
+              wrap: false,
+            } as Record<string, unknown>,
+            // Section label
+            React.createElement(
+              Text,
+              { style: styles.sectionLabel },
+              label
+            ),
+            // Content lines
+            ...lineElements
+          );
+        }),
+
+        // Footer: page number centered
+        pageFooter
+      );
+    })
   );
 }
 
 // ─── API Route ─────────────────────────────────────────────
 export async function POST(request: NextRequest) {
   try {
-    const { songIds } = await request.json();
+    const body = await request.json();
+    const { songIds, songs: clientSongs } = body;
 
-    if (!songIds || !Array.isArray(songIds) || songIds.length === 0) {
+    if (
+      (!songIds || !Array.isArray(songIds) || songIds.length === 0) &&
+      (!clientSongs || !Array.isArray(clientSongs) || clientSongs.length === 0)
+    ) {
       return NextResponse.json(
-        { error: "Nessun cantec selezionato" },
+        { error: "Nessuna canzone selezionata" },
         { status: 400 }
       );
     }
 
     let songs: SongWithSections[] = [];
-    const sb = getSupabase();
 
-    if (sb) {
-      // Fetch from Supabase
+    // Try Supabase first
+    const sb = getSupabase();
+    if (sb && songIds && songIds.length > 0) {
       const { data: songsData } = await sb
         .from("songs")
         .select("*")
@@ -463,18 +519,16 @@ export async function POST(request: NextRequest) {
           ),
         }));
       }
-    } else {
-      // When Supabase is not configured, the client should send the song data
-      // For now, return an error
-      return NextResponse.json(
-        { error: "Database non configurato. Configura Supabase per generare PDF." },
-        { status: 500 }
-      );
+    }
+
+    // Fallback: use songs sent from client (localStorage mode)
+    if (songs.length === 0 && clientSongs && Array.isArray(clientSongs)) {
+      songs = clientSongs;
     }
 
     if (songs.length === 0) {
       return NextResponse.json(
-        { error: "Nessun cantec trovato" },
+        { error: "Nessuna canzone trovata" },
         { status: 404 }
       );
     }
@@ -499,7 +553,7 @@ export async function POST(request: NextRequest) {
         error:
           error instanceof Error
             ? error.message
-            : "Eroare la generarea PDF-ului",
+            : "Errore nella generazione del PDF",
       },
       { status: 500 }
     );

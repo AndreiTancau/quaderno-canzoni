@@ -55,20 +55,44 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* Song chord inline styling */
-.chord-inline {
+/* Song chord-above-text layout */
+.chord-line-pair {
+  position: relative;
+  margin-bottom: 0.15em;
+}
+
+.chord-row {
   color: var(--chord-color);
   font-weight: 700;
   font-family: var(--font-chord), "JetBrains Mono", monospace;
-  font-size: 0.95em;
+  font-size: 0.9em;
+  white-space: pre;
+  line-height: 1.3;
+  min-height: 1.3em;
+  user-select: none;
+}
+
+.lyric-row {
+  white-space: pre-wrap;
+  font-family: var(--font-chord), "JetBrains Mono", monospace;
+  line-height: 1.4;
+}
+
+/* Lyrics-only line (no chords) */
+.lyric-only {
+  white-space: pre-wrap;
+  font-family: var(--font-chord), "JetBrains Mono", monospace;
+  line-height: 1.6;
+}
+
+/* Empty line spacer */
+.song-empty-line {
+  height: 0.8em;
 }
 
 /* Song text pre formatting */
 .song-text {
-  white-space: pre-wrap;
   font-family: var(--font-chord), "JetBrains Mono", monospace;
-  line-height: 2;
-  tab-size: 4;
   font-size: 0.95rem;
 }
 
@@ -104,26 +128,22 @@ body,
 @media (min-width: 768px) {
   .song-text {
     font-size: 1.1rem;
-    line-height: 2.1;
   }
 }
 
 @media (min-width: 1024px) {
   .song-text {
     font-size: 1.25rem;
-    line-height: 2.2;
   }
 }
 
 /* Large font mode */
 .font-large .song-text {
   font-size: 1.35rem;
-  line-height: 2.4;
 }
 
 .font-xlarge .song-text {
   font-size: 1.6rem;
-  line-height: 2.6;
 }
 
 /* Print styles */

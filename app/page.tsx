@@ -10,6 +10,7 @@ import type {
   SectionType,
   SortMode,
   ScrapedSong,
+  SearchResult,
 } from "@/lib/types";
 import {
   USERS,
@@ -50,43 +51,80 @@ function sectionBorderColor(type: SectionType): string {
   return map[type] || "border-gray-400";
 }
 
-/** Render chord content: replace [Chord] with styled spans */
-function renderChordLine(line: string, transpose: number): React.ReactNode[] {
-  const parts: React.ReactNode[] = [];
+/**
+ * Render a line with chords above lyrics.
+ * Input: "text [G]more text [Am]end" -> chord row + lyric row
+ * If no chords, returns just the lyric line.
+ */
+function renderChordLine(line: string, transpose: number): React.ReactNode {
   const regex = /\[([^\]]+)\]/g;
+  const hasChords = regex.test(line);
+
+  if (!hasChords) {
+    if (line.trim() === "") {
+      return <div className="song-empty-line" />;
+    }
+    return <div className="lyric-only">{line}</div>;
+  }
+
+  // Reset regex
+  regex.lastIndex = 0;
+
+  // Build chord string and lyric string in parallel
+  const lyricParts: string[] = [];
+  const chordPositions: { pos: number; chord: string }[] = [];
   let lastIndex = 0;
+  let lyricLength = 0;
   let match;
-  let key = 0;
 
   while ((match = regex.exec(line)) !== null) {
-    // Text before chord
-    if (match.index > lastIndex) {
-      parts.push(
-        <span key={key++}>{line.slice(lastIndex, match.index)}</span>
-      );
-    }
-    // Chord
-    const chord =
-      transpose !== 0
-        ? transposeChord(match[1], transpose)
-        : match[1];
-    parts.push(
-      <span key={key++} className="chord-inline">
-        {chord}
-      </span>
-    );
+    const textBefore = line.slice(lastIndex, match.index);
+    lyricParts.push(textBefore);
+    const chordName =
+      transpose !== 0 ? transposeChord(match[1], transpose) : match[1];
+    chordPositions.push({
+      pos: lyricLength + textBefore.length,
+      chord: chordName,
+    });
+    lyricLength += textBefore.length;
     lastIndex = match.index + match[0].length;
   }
-  // Remaining text
-  if (lastIndex < line.length) {
-    parts.push(<span key={key++}>{line.slice(lastIndex)}</span>);
+
+  const remaining = line.slice(lastIndex);
+  lyricParts.push(remaining);
+  const lyricText = lyricParts.join("");
+
+  // Build chord row string with spaces to align above lyrics
+  let chordRow = "";
+  for (const { pos, chord } of chordPositions) {
+    if (chordRow.length < pos) {
+      chordRow += " ".repeat(pos - chordRow.length);
+    }
+    chordRow += chord;
   }
-  return parts;
+
+  return (
+    <div className="chord-line-pair">
+      <div className="chord-row">{chordRow}</div>
+      <div className="lyric-row">{lyricText}</div>
+    </div>
+  );
 }
 
 function generateId(): string {
-  return crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2);
+  return crypto.randomUUID
+    ? crypto.randomUUID()
+    : Math.random().toString(36).slice(2);
 }
+
+// ─── Italian labels for section types ──────────────────────
+const SECTION_LABELS_IT: Record<SectionType, string> = {
+  strofa: "Strofa",
+  ritornello: "Ritornello",
+  bridge: "Bridge",
+  intro: "Intro",
+  outro: "Outro",
+};
 
 // ─── Main Component ────────────────────────────────────────
 
@@ -95,7 +133,9 @@ export default function Home() {
   const [selectedUser, setSelectedUser] = useState<AppUser>(USERS[0]);
   const [activeTab, setActiveTab] = useState<AppTab>("indice");
   const [songs, setSongs] = useState<SongWithSections[]>([]);
-  const [selectedSong, setSelectedSong] = useState<SongWithSections | null>(null);
+  const [selectedSong, setSelectedSong] = useState<SongWithSections | null>(
+    null
+  );
   const [darkMode, setDarkMode] = useState(false);
   const [loading, setLoading] = useState(true);
 
@@ -110,17 +150,30 @@ export default function Home() {
   // Song view state
   const [transposeAmount, setTransposeAmount] = useState(0);
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const [fontSizeMode, setFontSizeMode] = useState<"normal" | "large" | "xlarge">("normal");
+  const [fontSizeMode, setFontSizeMode] = useState<
+    "normal" | "large" | "xlarge"
+  >("normal");
 
   // Import state
   const [importUrl, setImportUrl] = useState("");
   const [importLoading, setImportLoading] = useState(false);
   const [importError, setImportError] = useState("");
   const [scrapedSong, setScrapedSong] = useState<ScrapedSong | null>(null);
-  const [importSections, setImportSections] = useState<Partial<SongSection>[]>([]);
+  const [importSections, setImportSections] = useState<
+    Partial<SongSection>[]
+  >([]);
   const [importKey, setImportKey] = useState("");
   const [importTitle, setImportTitle] = useState("");
   const [importAuthor, setImportAuthor] = useState("");
+
+  // Search state
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
+  const [searchType, setSearchType] = useState<"all" | "acorduri" | "cantece">(
+    "all"
+  );
+  const [importMode, setImportMode] = useState<"search" | "url">("search");
 
   // Edit state
   const [editSections, setEditSections] = useState<SongSection[]>([]);
@@ -156,10 +209,11 @@ export default function Home() {
   const loadSongs = useCallback(async () => {
     const sb = getSupabase();
     if (!sb) {
-      // Fallback: load from localStorage
       const stored = localStorage.getItem("quaderno-songs");
       if (stored) {
-        try { setSongs(JSON.parse(stored)); } catch {}
+        try {
+          setSongs(JSON.parse(stored));
+        } catch {}
       }
       setLoading(false);
       return;
@@ -175,20 +229,27 @@ export default function Home() {
         .order("position");
 
       if (songsData) {
-        const songsWithSections: SongWithSections[] = songsData.map((s: Song) => ({
-          ...s,
-          sections: (sectionsData || []).filter(
-            (sec: SongSection) => sec.song_id === s.id
-          ),
-        }));
+        const songsWithSections: SongWithSections[] = songsData.map(
+          (s: Song) => ({
+            ...s,
+            sections: (sectionsData || []).filter(
+              (sec: SongSection) => sec.song_id === s.id
+            ),
+          })
+        );
         setSongs(songsWithSections);
-        localStorage.setItem("quaderno-songs", JSON.stringify(songsWithSections));
+        localStorage.setItem(
+          "quaderno-songs",
+          JSON.stringify(songsWithSections)
+        );
       }
     } catch (err) {
       console.error("Error loading songs:", err);
       const stored = localStorage.getItem("quaderno-songs");
       if (stored) {
-        try { setSongs(JSON.parse(stored)); } catch {}
+        try {
+          setSongs(JSON.parse(stored));
+        } catch {}
       }
     }
     setLoading(false);
@@ -210,7 +271,6 @@ export default function Home() {
     ) => {
       const sb = getSupabase();
       if (!sb) {
-        // localStorage fallback
         const newSong: SongWithSections = {
           id: generateId(),
           title,
@@ -240,11 +300,19 @@ export default function Home() {
 
       const { data: songData, error: songErr } = await sb
         .from("songs")
-        .insert({ title, author, album, key, source_url: sourceUrl, owner: selectedUser.name })
+        .insert({
+          title,
+          author,
+          album,
+          key,
+          source_url: sourceUrl,
+          owner: selectedUser.name,
+        })
         .select()
         .single();
 
-      if (songErr || !songData) throw songErr || new Error("Failed to save song");
+      if (songErr || !songData)
+        throw songErr || new Error("Failed to save song");
 
       const sectionsToInsert = sections.map((s, i) => ({
         song_id: songData.id,
@@ -300,7 +368,6 @@ export default function Home() {
         .update({ title, author, album, key })
         .eq("id", songId);
 
-      // Delete old sections and re-insert
       await sb.from("song_sections").delete().eq("song_id", songId);
 
       if (sections.length > 0) {
@@ -337,76 +404,187 @@ export default function Home() {
     [songs, loadSongs]
   );
 
-  // --- Import: scrape song ---
-  const handleImport = useCallback(async () => {
-    if (!importUrl.trim()) return;
-    setImportLoading(true);
-    setImportError("");
-    setScrapedSong(null);
+  // --- Search songs on resursecrestine.ro ---
+  const handleSearch = useCallback(async () => {
+    if (!searchQuery.trim() || searchQuery.trim().length < 2) return;
+    setSearchLoading(true);
+    setSearchResults([]);
 
     try {
       const res = await fetch("/api/scrape", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url: importUrl.trim() }),
+        body: JSON.stringify({
+          action: "search",
+          query: searchQuery.trim(),
+          searchType,
+        }),
       });
       const data = await res.json();
-
       if (!res.ok) {
-        setImportError(data.error || "Eroare la import");
+        showToast(data.error || "Errore nella ricerca");
         return;
       }
+      setSearchResults(data.results || []);
+      if ((data.results || []).length === 0) {
+        showToast("Nessun risultato trovato");
+      }
+    } catch {
+      showToast("Errore di rete");
+    } finally {
+      setSearchLoading(false);
+    }
+  }, [searchQuery, searchType, showToast]);
 
-      setScrapedSong(data);
-      setImportTitle(data.title);
-      setImportAuthor(data.author);
+  // --- Import: scrape song (from URL or search result) ---
+  const handleImport = useCallback(
+    async (url?: string) => {
+      const targetUrl = url || importUrl.trim();
+      if (!targetUrl) return;
+      setImportLoading(true);
+      setImportError("");
+      setScrapedSong(null);
 
-      // Auto-detect key
-      const detectedKey = detectKeyFromContent(data.chordContent);
-      if (detectedKey) setImportKey(detectedKey);
+      try {
+        const res = await fetch("/api/scrape", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ url: targetUrl }),
+        });
+        const data = await res.json();
 
-      // Auto-split into sections: treat the whole content as one section initially
-      // Users can then split it manually
-      const sections: Partial<SongSection>[] = [
-        {
-          section_type: "strofa" as SectionType,
-          section_label: "Cantec",
-          content: data.chordContent,
-          chords: "",
-          position: 0,
-        },
-      ];
+        if (!res.ok) {
+          setImportError(data.error || "Errore durante l'importazione");
+          return;
+        }
 
-      // Try to auto-detect sections by looking for patterns like blank lines
-      const lines = data.chordContent.split("\n");
-      const autoSections: Partial<SongSection>[] = [];
-      let currentContent: string[] = [];
-      let sectionCount = { strofa: 0, ritornello: 0 };
+        setScrapedSong(data);
+        setImportTitle(data.title);
+        setImportAuthor(data.author);
+        setImportUrl(targetUrl);
 
-      for (let i = 0; i < lines.length; i++) {
-        const line = lines[i];
-        const trimmed = line.trim().toLowerCase();
+        // Auto-detect key
+        const detectedKey = detectKeyFromContent(data.chordContent);
+        if (detectedKey) setImportKey(detectedKey);
 
-        // Check if this is a section marker
-        const isRefrain =
-          trimmed.startsWith("r:") ||
-          trimmed.startsWith("refren:") ||
-          trimmed.startsWith("ref:") ||
-          trimmed === "refren" ||
-          trimmed === "ritornello" ||
-          trimmed === "chorus" ||
-          trimmed === "chorus:";
-        const isBridge =
-          trimmed.startsWith("bridge") || trimmed.startsWith("punte");
-        const isIntro = trimmed.startsWith("intro");
-        const isOutro =
-          trimmed.startsWith("outro") || trimmed.startsWith("final");
+        // Auto-split into sections
+        const sections: Partial<SongSection>[] = [
+          {
+            section_type: "strofa" as SectionType,
+            section_label: "Canzone",
+            content: data.chordContent,
+            chords: "",
+            position: 0,
+          },
+        ];
 
-        if (isRefrain || isBridge || isIntro || isOutro) {
-          // Save current content as a section
-          if (currentContent.length > 0) {
-            const text = currentContent.join("\n").trim();
-            if (text) {
+        // Try to auto-detect sections by looking for patterns
+        const lines = data.chordContent.split("\n");
+        const autoSections: Partial<SongSection>[] = [];
+        let currentContent: string[] = [];
+        let sectionCount = { strofa: 0, ritornello: 0 };
+
+        for (let i = 0; i < lines.length; i++) {
+          const line = lines[i];
+          const trimmed = line.trim().toLowerCase();
+
+          // Check if this is a section marker
+          const isRefrain =
+            trimmed.startsWith("r:") ||
+            trimmed.startsWith("refren:") ||
+            trimmed.startsWith("ref:") ||
+            trimmed === "refren" ||
+            trimmed === "ritornello" ||
+            trimmed === "chorus" ||
+            trimmed === "chorus:";
+          const isBridge =
+            trimmed.startsWith("bridge") || trimmed.startsWith("punte");
+          const isIntro = trimmed.startsWith("intro");
+          const isOutro =
+            trimmed.startsWith("outro") || trimmed.startsWith("final");
+
+          if (isRefrain || isBridge || isIntro || isOutro) {
+            // Save current content as a section
+            if (currentContent.length > 0) {
+              const text = currentContent.join("\n").trim();
+              if (text) {
+                sectionCount.strofa++;
+                autoSections.push({
+                  section_type: "strofa",
+                  section_label: `Strofa ${sectionCount.strofa}`,
+                  content: text,
+                  position: autoSections.length,
+                });
+              }
+            }
+            currentContent = [];
+
+            let type: SectionType = "ritornello";
+            if (isBridge) type = "bridge";
+            if (isIntro) type = "intro";
+            if (isOutro) type = "outro";
+
+            // The label line itself might have content after the marker
+            const markerContent = line
+              .replace(
+                /^(r:|refren:|ref:|refren|ritornello|chorus:|chorus|bridge:|bridge|punte:|punte|intro:|intro|outro:|outro|final:?)\s*/i,
+                ""
+              )
+              .trim();
+            if (markerContent) {
+              currentContent.push(markerContent);
+            }
+
+            // Collect until next blank line or section marker
+            let j = i + 1;
+            while (j < lines.length) {
+              const nextTrimmed = lines[j].trim().toLowerCase();
+              if (
+                nextTrimmed === "" &&
+                j + 1 < lines.length &&
+                lines[j + 1].trim() === ""
+              ) {
+                break;
+              }
+              const isNextMarker =
+                nextTrimmed.startsWith("r:") ||
+                nextTrimmed.startsWith("refren") ||
+                nextTrimmed.startsWith("ref:") ||
+                nextTrimmed === "chorus" ||
+                nextTrimmed.startsWith("bridge") ||
+                nextTrimmed.startsWith("intro") ||
+                nextTrimmed.startsWith("outro") ||
+                nextTrimmed.startsWith("final");
+              if (isNextMarker) break;
+              currentContent.push(lines[j]);
+              j++;
+            }
+            i = j - 1;
+
+            const sectionText = currentContent.join("\n").trim();
+            if (sectionText) {
+              if (type === "ritornello") sectionCount.ritornello++;
+              autoSections.push({
+                section_type: type,
+                section_label:
+                  type === "ritornello"
+                    ? `Ritornello${sectionCount.ritornello > 1 ? " " + sectionCount.ritornello : ""}`
+                    : SECTION_LABELS_IT[type],
+                content: sectionText,
+                position: autoSections.length,
+              });
+            }
+            currentContent = [];
+          } else {
+            currentContent.push(line);
+          }
+        }
+
+        // Remaining content
+        if (currentContent.length > 0) {
+          const text = currentContent.join("\n").trim();
+          if (text) {
+            if (autoSections.length > 0) {
               sectionCount.strofa++;
               autoSections.push({
                 section_type: "strofa",
@@ -416,99 +594,29 @@ export default function Home() {
               });
             }
           }
-          currentContent = [];
-
-          // Start collecting the special section
-          let type: SectionType = "ritornello";
-          if (isBridge) type = "bridge";
-          if (isIntro) type = "intro";
-          if (isOutro) type = "outro";
-
-          // The label line itself might have content after the marker
-          const markerContent = line
-            .replace(/^(r:|refren:|ref:|refren|ritornello|chorus:|chorus|bridge:|bridge|punte:|punte|intro:|intro|outro:|outro|final:?)\s*/i, "")
-            .trim();
-          if (markerContent) {
-            currentContent.push(markerContent);
-          }
-
-          // Collect until next blank line or section marker
-          let j = i + 1;
-          while (j < lines.length) {
-            const nextTrimmed = lines[j].trim().toLowerCase();
-            if (
-              nextTrimmed === "" &&
-              j + 1 < lines.length &&
-              lines[j + 1].trim() === ""
-            ) {
-              break;
-            }
-            const isNextMarker =
-              nextTrimmed.startsWith("r:") ||
-              nextTrimmed.startsWith("refren") ||
-              nextTrimmed.startsWith("ref:") ||
-              nextTrimmed === "chorus" ||
-              nextTrimmed.startsWith("bridge") ||
-              nextTrimmed.startsWith("intro") ||
-              nextTrimmed.startsWith("outro") ||
-              nextTrimmed.startsWith("final");
-            if (isNextMarker) break;
-            currentContent.push(lines[j]);
-            j++;
-          }
-          i = j - 1;
-
-          const sectionText = currentContent.join("\n").trim();
-          if (sectionText) {
-            if (type === "ritornello") sectionCount.ritornello++;
-            autoSections.push({
-              section_type: type,
-              section_label:
-                type === "ritornello"
-                  ? `Ritornello${sectionCount.ritornello > 1 ? " " + sectionCount.ritornello : ""}`
-                  : SECTION_LABELS[type],
-              content: sectionText,
-              position: autoSections.length,
-            });
-          }
-          currentContent = [];
-        } else {
-          currentContent.push(line);
         }
-      }
 
-      // Remaining content
-      if (currentContent.length > 0) {
-        const text = currentContent.join("\n").trim();
-        if (text) {
-          if (autoSections.length > 0) {
-            sectionCount.strofa++;
-            autoSections.push({
-              section_type: "strofa",
-              section_label: `Strofa ${sectionCount.strofa}`,
-              content: text,
-              position: autoSections.length,
-            });
-          }
-        }
-      }
+        // Use auto-detected sections if we found more than one
+        setImportSections(
+          autoSections.length > 1 ? autoSections : sections
+        );
 
-      // Use auto-detected sections if we found more than one, otherwise use the single section
-      setImportSections(
-        autoSections.length > 1 ? autoSections : sections
-      );
-    } catch (err) {
-      setImportError("Eroare de retea");
-    } finally {
-      setImportLoading(false);
-    }
-  }, [importUrl]);
+        // Clear search results once a song is loaded
+        setSearchResults([]);
+      } catch {
+        setImportError("Errore di rete");
+      } finally {
+        setImportLoading(false);
+      }
+    },
+    [importUrl]
+  );
 
   // --- Import: save ---
   const handleImportSave = useCallback(async () => {
     setSaving(true);
     try {
-      const song = await saveSong(
+      await saveSong(
         importTitle,
         importAuthor,
         scrapedSong?.album || null,
@@ -516,16 +624,18 @@ export default function Home() {
         importUrl || null,
         importSections
       );
-      showToast("Cantec salvat cu succes!");
+      showToast("Canzone salvata con successo!");
       setScrapedSong(null);
       setImportUrl("");
       setImportSections([]);
       setImportKey("");
       setImportTitle("");
       setImportAuthor("");
+      setSearchQuery("");
+      setSearchResults([]);
       setActiveTab("indice");
-    } catch (err) {
-      showToast("Eroare la salvare");
+    } catch {
+      showToast("Errore durante il salvataggio");
     }
     setSaving(false);
   }, [
@@ -545,9 +655,7 @@ export default function Home() {
     setEditAuthor(song.author);
     setEditAlbum(song.album || "");
     setEditKey(song.key || "");
-    setEditSections(
-      song.sections.map((s) => ({ ...s }))
-    );
+    setEditSections(song.sections.map((s) => ({ ...s })));
     setActiveTab("modifica");
   }, []);
 
@@ -564,8 +672,7 @@ export default function Home() {
         editKey || null,
         editSections
       );
-      showToast("Modificari salvate!");
-      // Reload selected song
+      showToast("Modifiche salvate!");
       const updated = songs.find((s) => s.id === selectedSong.id);
       if (updated) {
         setSelectedSong({
@@ -578,8 +685,8 @@ export default function Home() {
         });
       }
       setActiveTab("canzone");
-    } catch (err) {
-      showToast("Eroare la salvare");
+    } catch {
+      showToast("Errore durante il salvataggio");
     }
     setSaving(false);
   }, [
@@ -597,22 +704,23 @@ export default function Home() {
   // --- Edit: delete ---
   const handleDelete = useCallback(async () => {
     if (!selectedSong) return;
-    if (!confirm("Esti sigur ca vrei sa stergi acest cantec?")) return;
+    if (!confirm("Sei sicuro di voler eliminare questa canzone?")) return;
     await deleteSong(selectedSong.id);
     setSelectedSong(null);
     setActiveTab("indice");
-    showToast("Cantec sters");
+    showToast("Canzone eliminata");
   }, [selectedSong, deleteSong, showToast]);
 
   // --- PDF export ---
   const handleExportPdf = useCallback(
     async (ids: string[]) => {
       try {
-        showToast("Se genereaza PDF-ul...");
+        showToast("Generazione PDF in corso...");
+        const selectedSongs = songs.filter((s) => ids.includes(s.id));
         const res = await fetch("/api/pdf", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ songIds: ids }),
+          body: JSON.stringify({ songIds: ids, songs: selectedSongs }),
         });
         if (!res.ok) throw new Error("PDF generation failed");
         const blob = await res.blob();
@@ -621,13 +729,13 @@ export default function Home() {
         a.href = url;
         a.download =
           ids.length === 1
-            ? `${songs.find((s) => s.id === ids[0])?.title || "cantec"}.pdf`
+            ? `${songs.find((s) => s.id === ids[0])?.title || "canzone"}.pdf`
             : "quaderno-canzoni.pdf";
         a.click();
         URL.revokeObjectURL(url);
-        showToast("PDF descarcat!");
+        showToast("PDF scaricato!");
       } catch {
-        showToast("Eroare la generarea PDF");
+        showToast("Errore nella generazione del PDF");
       }
     },
     [songs, showToast]
@@ -637,7 +745,6 @@ export default function Home() {
   const filteredSongs = useMemo(() => {
     let result = [...songs];
 
-    // Filter by search query
     if (query.trim()) {
       const q = query.toLowerCase();
       result = result.filter(
@@ -647,19 +754,16 @@ export default function Home() {
       );
     }
 
-    // Filter by key
     if (filterKey) {
       result = result.filter((s) => s.key === filterKey);
     }
 
-    // Filter by letter
     if (activeLetter) {
       result = result.filter((s) =>
         s.title.toUpperCase().startsWith(activeLetter)
       );
     }
 
-    // Sort
     result.sort((a, b) => {
       if (sortMode === "title") return a.title.localeCompare(b.title, "ro");
       if (sortMode === "author") return a.author.localeCompare(b.author, "ro");
@@ -672,8 +776,12 @@ export default function Home() {
 
   // Available letters
   const availableLetters = useMemo(() => {
-    const letters = new Set(songs.map((s) => s.title[0]?.toUpperCase()).filter(Boolean));
-    return "ABCDEFGHIJKLMNOPRSTUVWXYZ".split("").filter((l) => letters.has(l));
+    const letters = new Set(
+      songs.map((s) => s.title[0]?.toUpperCase()).filter(Boolean)
+    );
+    return "ABCDEFGHIJKLMNOPRSTUVWXYZ"
+      .split("")
+      .filter((l) => letters.has(l));
   }, [songs]);
 
   // Available keys in collection
@@ -684,12 +792,19 @@ export default function Home() {
   // ─── RENDER ─────────────────────────────────────────────
 
   return (
-    <div className={cn(fontSizeMode === "large" && "font-large", fontSizeMode === "xlarge" && "font-xlarge")}>
+    <div
+      className={cn(
+        fontSizeMode === "large" && "font-large",
+        fontSizeMode === "xlarge" && "font-xlarge"
+      )}
+    >
       {/* Toast */}
       {toast && (
         <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[100] animate-fade-in">
-          <div className="px-5 py-2.5 rounded-xl shadow-lg text-sm font-medium"
-            style={{ background: "var(--accent)", color: "white" }}>
+          <div
+            className="px-5 py-2.5 rounded-xl shadow-lg text-sm font-medium"
+            style={{ background: "var(--accent)", color: "white" }}
+          >
             {toast}
           </div>
         </div>
@@ -701,7 +816,8 @@ export default function Home() {
         <header
           className="no-print sticky top-0 z-40 backdrop-blur-md border-b"
           style={{
-            background: "color-mix(in srgb, var(--background) 85%, transparent)",
+            background:
+              "color-mix(in srgb, var(--background) 85%, transparent)",
             borderColor: "var(--card-border)",
           }}
         >
@@ -718,9 +834,18 @@ export default function Home() {
                   }
                 }}
                 className="p-2 rounded-lg hover:bg-[var(--accent-light)] transition-colors"
-                aria-label="Inapoi"
+                aria-label="Indietro"
               >
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <svg
+                  width="20"
+                  height="20"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
                   <path d="M19 12H5M12 19l-7-7 7-7" />
                 </svg>
               </button>
@@ -729,11 +854,13 @@ export default function Home() {
             {/* Title */}
             <h1
               className="text-lg md:text-xl font-bold tracking-tight flex-1"
-              style={{ fontFamily: "var(--font-title), var(--font-fraunces), serif" }}
+              style={{
+                fontFamily: "var(--font-title), var(--font-fraunces), serif",
+              }}
             >
               {activeTab === "indice" && "Quaderno Canzoni"}
               {activeTab === "canzone" && (selectedSong?.title || "")}
-              {activeTab === "importa" && "Importa Cantec"}
+              {activeTab === "importa" && "Importa Canzone"}
               {activeTab === "modifica" && "Modifica"}
             </h1>
 
@@ -743,7 +870,7 @@ export default function Home() {
               <button
                 onClick={() => setDarkMode(!darkMode)}
                 className="p-2 rounded-lg hover:bg-[var(--accent-light)] transition-colors text-sm"
-                aria-label="Toggle dark mode"
+                aria-label="Tema chiaro/scuro"
               >
                 {darkMode ? "\u2600\uFE0F" : "\uD83C\uDF19"}
               </button>
@@ -780,23 +907,31 @@ export default function Home() {
           {activeTab === "indice" && (
             <div className="animate-fade-in">
               {/* Search + controls bar */}
-              <div className="sticky top-[57px] z-30 pt-4 pb-3 no-print"
-                style={{ background: "var(--background)" }}>
+              <div
+                className="sticky top-[57px] z-30 pt-4 pb-3 no-print"
+                style={{ background: "var(--background)" }}
+              >
                 <div className="flex flex-col gap-3">
                   {/* Search */}
                   <div className="flex gap-2">
                     <div className="flex-1 relative">
                       <svg
                         className="absolute left-3 top-1/2 -translate-y-1/2 opacity-40"
-                        width="16" height="16" viewBox="0 0 24 24" fill="none"
-                        stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+                        width="16"
+                        height="16"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
                       >
                         <circle cx="11" cy="11" r="8" />
                         <path d="M21 21l-4.35-4.35" />
                       </svg>
                       <input
                         type="text"
-                        placeholder="Cauta cantec sau autor..."
+                        placeholder="Cerca canzone o autore..."
                         value={query}
                         onChange={(e) => {
                           setQuery(e.target.value);
@@ -823,12 +958,14 @@ export default function Home() {
                     {/* Sort */}
                     <select
                       value={sortMode}
-                      onChange={(e) => setSortMode(e.target.value as SortMode)}
+                      onChange={(e) =>
+                        setSortMode(e.target.value as SortMode)
+                      }
                       className="px-3 py-1.5 rounded-lg border text-xs font-medium focus:outline-none"
                     >
-                      <option value="title">Titlu A-Z</option>
-                      <option value="author">Autor A-Z</option>
-                      <option value="key">Gama</option>
+                      <option value="title">Titolo A-Z</option>
+                      <option value="author">Autore A-Z</option>
+                      <option value="key">Tonalita</option>
                     </select>
 
                     {/* Key filter */}
@@ -838,7 +975,7 @@ export default function Home() {
                         onChange={(e) => setFilterKey(e.target.value)}
                         className="px-3 py-1.5 rounded-lg border text-xs font-medium focus:outline-none"
                       >
-                        <option value="">Toate gamele</option>
+                        <option value="">Tutte le tonalita</option>
                         {usedKeys.sort().map((k) => (
                           <option key={k} value={k}>
                             {k}
@@ -848,8 +985,11 @@ export default function Home() {
                     )}
 
                     {/* Count */}
-                    <span className="text-xs ml-auto" style={{ color: "var(--muted)" }}>
-                      {filteredSongs.length} cantece
+                    <span
+                      className="text-xs ml-auto"
+                      style={{ color: "var(--muted)" }}
+                    >
+                      {filteredSongs.length} canzoni
                     </span>
 
                     {/* Select mode toggle */}
@@ -862,9 +1002,16 @@ export default function Home() {
                         "px-3 py-1.5 rounded-lg text-xs font-medium border transition-all",
                         selectMode && "text-white"
                       )}
-                      style={selectMode ? { background: "var(--accent)", borderColor: "var(--accent)" } : undefined}
+                      style={
+                        selectMode
+                          ? {
+                              background: "var(--accent)",
+                              borderColor: "var(--accent)",
+                            }
+                          : undefined
+                      }
                     >
-                      {selectMode ? "Anuleaza" : "Selecteaza"}
+                      {selectMode ? "Annulla" : "Seleziona"}
                     </button>
                   </div>
 
@@ -879,7 +1026,7 @@ export default function Home() {
                           setActiveLetter("");
                         }}
                       >
-                        Toate
+                        Tutte
                       </a>
                       {availableLetters.map((l) => (
                         <a
@@ -901,20 +1048,24 @@ export default function Home() {
                   {selectMode && selectedIds.size > 0 && (
                     <div className="flex gap-2 items-center">
                       <span className="text-xs font-medium">
-                        {selectedIds.size} selectate
+                        {selectedIds.size} selezionate
                       </span>
                       <button
-                        onClick={() => handleExportPdf(Array.from(selectedIds))}
+                        onClick={() =>
+                          handleExportPdf(Array.from(selectedIds))
+                        }
                         className="px-3 py-1.5 rounded-lg text-white text-xs font-semibold"
                         style={{ background: "var(--accent)" }}
                       >
-                        Exporta PDF ({selectedIds.size})
+                        Esporta PDF ({selectedIds.size})
                       </button>
                       <button
-                        onClick={() => handleExportPdf(songs.map((s) => s.id))}
+                        onClick={() =>
+                          handleExportPdf(songs.map((s) => s.id))
+                        }
                         className="px-3 py-1.5 rounded-lg border text-xs font-semibold hover:bg-[var(--accent-light)] transition-colors"
                       >
-                        Exporta Toate
+                        Esporta Tutte
                       </button>
                     </div>
                   )}
@@ -927,12 +1078,17 @@ export default function Home() {
                   <div className="animate-spin rounded-full h-8 w-8 border-2 border-[var(--accent)] border-t-transparent" />
                 </div>
               ) : filteredSongs.length === 0 ? (
-                <div className="text-center py-20" style={{ color: "var(--muted)" }}>
-                  <div className="text-4xl mb-4">{songs.length === 0 ? "\uD83C\uDFB5" : "\uD83D\uDD0D"}</div>
+                <div
+                  className="text-center py-20"
+                  style={{ color: "var(--muted)" }}
+                >
+                  <div className="text-4xl mb-4">
+                    {songs.length === 0 ? "\uD83C\uDFB5" : "\uD83D\uDD0D"}
+                  </div>
                   <p className="text-lg font-medium">
                     {songs.length === 0
-                      ? "Niciun cantec inca"
-                      : "Niciun rezultat"}
+                      ? "Nessuna canzone ancora"
+                      : "Nessun risultato"}
                   </p>
                   {songs.length === 0 && isAdmin && (
                     <button
@@ -940,7 +1096,7 @@ export default function Home() {
                       className="mt-4 px-6 py-2.5 rounded-xl text-white font-semibold"
                       style={{ background: "var(--accent)" }}
                     >
-                      Importa primul cantec
+                      Importa la prima canzone
                     </button>
                   )}
                 </div>
@@ -963,7 +1119,9 @@ export default function Home() {
                       }}
                       className={cn(
                         "card-transition text-left p-4 rounded-xl border transition-all hover:shadow-md",
-                        selectMode && selectedIds.has(song.id) && "ring-2 ring-[var(--accent)]"
+                        selectMode &&
+                          selectedIds.has(song.id) &&
+                          "ring-2 ring-[var(--accent)]"
                       )}
                       style={{
                         background: "var(--card-bg)",
@@ -975,11 +1133,21 @@ export default function Home() {
                           <div
                             className={cn(
                               "mt-1 w-5 h-5 rounded-md border-2 flex items-center justify-center flex-shrink-0 transition-all",
-                              selectedIds.has(song.id) && "border-[var(--accent)] bg-[var(--accent)]"
+                              selectedIds.has(song.id) &&
+                                "border-[var(--accent)] bg-[var(--accent)]"
                             )}
                           >
                             {selectedIds.has(song.id) && (
-                              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                              <svg
+                                width="12"
+                                height="12"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="white"
+                                strokeWidth="3"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                              >
                                 <polyline points="20 6 9 17 4 12" />
                               </svg>
                             )}
@@ -988,7 +1156,9 @@ export default function Home() {
                         <div className="flex-1 min-w-0">
                           <h3
                             className="font-bold text-[0.95rem] leading-snug truncate"
-                            style={{ fontFamily: "var(--font-title), serif" }}
+                            style={{
+                              fontFamily: "var(--font-title), serif",
+                            }}
                           >
                             {song.title}
                           </h3>
@@ -1020,10 +1190,12 @@ export default function Home() {
               {songs.length > 0 && !selectMode && (
                 <div className="mt-8 text-center no-print">
                   <button
-                    onClick={() => handleExportPdf(songs.map((s) => s.id))}
+                    onClick={() =>
+                      handleExportPdf(songs.map((s) => s.id))
+                    }
                     className="px-6 py-2.5 rounded-xl border text-sm font-semibold hover:bg-[var(--accent-light)] transition-colors"
                   >
-                    Exporta tot ca PDF ({songs.length} cantece)
+                    Esporta tutto come PDF ({songs.length} canzoni)
                   </button>
                 </div>
               )}
@@ -1037,12 +1209,17 @@ export default function Home() {
               <div className="mb-6">
                 <h2
                   className="text-2xl md:text-3xl lg:text-4xl font-extrabold leading-tight"
-                  style={{ fontFamily: "var(--font-title), serif" }}
+                  style={{
+                    fontFamily: "var(--font-title), serif",
+                  }}
                 >
                   {selectedSong.title}
                 </h2>
                 <div className="flex items-center gap-3 mt-2 flex-wrap">
-                  <span style={{ color: "var(--muted)" }} className="text-sm">
+                  <span
+                    style={{ color: "var(--muted)" }}
+                    className="text-sm"
+                  >
                     {selectedSong.author}
                   </span>
                   {(selectedSong.key || transposeAmount !== 0) && (
@@ -1053,7 +1230,7 @@ export default function Home() {
                         color: "var(--accent)",
                       }}
                     >
-                      Gama:{" "}
+                      Tonalita:{" "}
                       {transposeAmount !== 0 && selectedSong.key
                         ? transposeChord(selectedSong.key, transposeAmount)
                         : selectedSong.key || "?"}
@@ -1066,7 +1243,7 @@ export default function Home() {
                       rel="noopener noreferrer"
                       className="text-xs underline opacity-50 hover:opacity-100"
                     >
-                      sursa
+                      fonte
                     </a>
                   )}
                 </div>
@@ -1082,8 +1259,11 @@ export default function Home() {
               >
                 {/* Transpose */}
                 <div className="flex items-center gap-1.5">
-                  <span className="text-xs font-medium" style={{ color: "var(--muted)" }}>
-                    Transpune:
+                  <span
+                    className="text-xs font-medium"
+                    style={{ color: "var(--muted)" }}
+                  >
+                    Trasponi:
                   </span>
                   <button
                     onClick={() => setTransposeAmount((t) => t - 1)}
@@ -1092,7 +1272,9 @@ export default function Home() {
                     -
                   </button>
                   <span className="text-sm font-mono font-bold w-6 text-center">
-                    {transposeAmount > 0 ? `+${transposeAmount}` : transposeAmount}
+                    {transposeAmount > 0
+                      ? `+${transposeAmount}`
+                      : transposeAmount}
                   </span>
                   <button
                     onClick={() => setTransposeAmount((t) => t + 1)}
@@ -1111,7 +1293,10 @@ export default function Home() {
                   )}
                 </div>
 
-                <div className="w-px h-6 mx-1" style={{ background: "var(--card-border)" }} />
+                <div
+                  className="w-px h-6 mx-1"
+                  style={{ background: "var(--card-border)" }}
+                />
 
                 {/* Font size */}
                 <div className="flex items-center gap-1">
@@ -1131,20 +1316,36 @@ export default function Home() {
                           : undefined
                       }
                     >
-                      {size === "normal" ? "A" : size === "large" ? "A+" : "A++"}
+                      {size === "normal"
+                        ? "A"
+                        : size === "large"
+                          ? "A+"
+                          : "A++"}
                     </button>
                   ))}
                 </div>
 
-                <div className="w-px h-6 mx-1" style={{ background: "var(--card-border)" }} />
+                <div
+                  className="w-px h-6 mx-1"
+                  style={{ background: "var(--card-border)" }}
+                />
 
                 {/* Fullscreen */}
                 <button
                   onClick={() => setIsFullscreen(!isFullscreen)}
                   className="p-2 rounded-lg hover:bg-[var(--accent-light)] transition-colors"
-                  aria-label="Toggle fullscreen"
+                  aria-label="Schermo intero"
                 >
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <svg
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
                     {isFullscreen ? (
                       <>
                         <polyline points="4 14 10 14 10 20" />
@@ -1167,9 +1368,18 @@ export default function Home() {
                 <button
                   onClick={() => handleExportPdf([selectedSong.id])}
                   className="p-2 rounded-lg hover:bg-[var(--accent-light)] transition-colors"
-                  aria-label="Export PDF"
+                  aria-label="Esporta PDF"
                 >
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <svg
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
                     <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
                     <polyline points="7 10 12 15 17 10" />
                     <line x1="12" y1="15" x2="12" y2="3" />
@@ -1200,7 +1410,9 @@ export default function Home() {
                           <span
                             className={cn(
                               "section-badge",
-                              sectionBgColor(section.section_type as SectionType)
+                              sectionBgColor(
+                                section.section_type as SectionType
+                              )
                             )}
                           >
                             {section.section_label}
@@ -1210,7 +1422,9 @@ export default function Home() {
                         <div
                           className={cn(
                             "pl-4 border-l-[3px]",
-                            sectionBorderColor(section.section_type as SectionType)
+                            sectionBorderColor(
+                              section.section_type as SectionType
+                            )
                           )}
                         >
                           <div className="song-text">
@@ -1224,8 +1438,11 @@ export default function Home() {
                       </div>
                     ))
                 ) : (
-                  <div className="song-text py-4" style={{ color: "var(--muted)" }}>
-                    Nicio sectiune definita
+                  <div
+                    className="song-text py-4"
+                    style={{ color: "var(--muted)" }}
+                  >
+                    Nessuna sezione definita
                   </div>
                 )}
               </div>
@@ -1235,46 +1452,235 @@ export default function Home() {
           {/* ═══════════════ TAB: IMPORTA ═══════════════ */}
           {activeTab === "importa" && isAdmin && (
             <div className="animate-fade-in py-6 max-w-2xl mx-auto">
-              {/* URL input */}
-              <div className="mb-6">
-                <label className="block text-sm font-semibold mb-2">
-                  Link resursecrestine.ro
-                </label>
-                <div className="flex gap-2">
-                  <input
-                    type="url"
-                    placeholder="https://www.resursecrestine.ro/acorduri/..."
-                    value={importUrl}
-                    onChange={(e) => setImportUrl(e.target.value)}
-                    onKeyDown={(e) => e.key === "Enter" && handleImport()}
-                    className="flex-1 px-4 py-3 rounded-xl border text-sm focus:outline-none focus:ring-2 focus:ring-[var(--accent)]"
-                  />
-                  <button
-                    onClick={handleImport}
-                    disabled={importLoading || !importUrl.trim()}
-                    className="px-6 py-3 rounded-xl text-white text-sm font-semibold disabled:opacity-50 transition-all"
-                    style={{ background: "var(--accent)" }}
-                  >
-                    {importLoading ? (
-                      <span className="animate-spin inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full" />
-                    ) : (
-                      "Importa"
-                    )}
-                  </button>
-                </div>
-                {importError && (
-                  <p className="mt-2 text-sm text-red-500">{importError}</p>
-                )}
+              {/* Import mode tabs */}
+              <div className="flex gap-2 mb-6">
+                <button
+                  onClick={() => setImportMode("search")}
+                  className={cn(
+                    "flex-1 py-2.5 rounded-xl text-sm font-semibold transition-all border",
+                    importMode === "search"
+                      ? "text-white shadow-md"
+                      : "hover:bg-[var(--accent-light)]"
+                  )}
+                  style={
+                    importMode === "search"
+                      ? {
+                          background: "var(--accent)",
+                          borderColor: "var(--accent)",
+                        }
+                      : undefined
+                  }
+                >
+                  Cerca Canzone
+                </button>
+                <button
+                  onClick={() => setImportMode("url")}
+                  className={cn(
+                    "flex-1 py-2.5 rounded-xl text-sm font-semibold transition-all border",
+                    importMode === "url"
+                      ? "text-white shadow-md"
+                      : "hover:bg-[var(--accent-light)]"
+                  )}
+                  style={
+                    importMode === "url"
+                      ? {
+                          background: "var(--accent)",
+                          borderColor: "var(--accent)",
+                        }
+                      : undefined
+                  }
+                >
+                  Incolla Link
+                </button>
               </div>
 
-              {/* Scraped song preview */}
+              {/* ── Search mode ── */}
+              {importMode === "search" && !scrapedSong && (
+                <div className="mb-6">
+                  <label className="block text-sm font-semibold mb-2">
+                    Cerca su resursecrestine.ro
+                  </label>
+                  <div className="flex gap-2 mb-3">
+                    <input
+                      type="text"
+                      placeholder="Titolo della canzone..."
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      onKeyDown={(e) => e.key === "Enter" && handleSearch()}
+                      className="flex-1 px-4 py-3 rounded-xl border text-sm focus:outline-none focus:ring-2 focus:ring-[var(--accent)]"
+                    />
+                    <button
+                      onClick={handleSearch}
+                      disabled={
+                        searchLoading || searchQuery.trim().length < 2
+                      }
+                      className="px-6 py-3 rounded-xl text-white text-sm font-semibold disabled:opacity-50 transition-all"
+                      style={{ background: "var(--accent)" }}
+                    >
+                      {searchLoading ? (
+                        <span className="animate-spin inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full" />
+                      ) : (
+                        "Cerca"
+                      )}
+                    </button>
+                  </div>
+
+                  {/* Search type filter */}
+                  <div className="flex gap-2 mb-4">
+                    {(
+                      [
+                        { value: "all", label: "Tutti" },
+                        { value: "acorduri", label: "Con accordi" },
+                        { value: "cantece", label: "Solo testo" },
+                      ] as const
+                    ).map((opt) => (
+                      <button
+                        key={opt.value}
+                        onClick={() => setSearchType(opt.value)}
+                        className={cn(
+                          "px-3 py-1.5 rounded-lg text-xs font-medium border transition-all",
+                          searchType === opt.value && "text-white"
+                        )}
+                        style={
+                          searchType === opt.value
+                            ? {
+                                background: "var(--accent)",
+                                borderColor: "var(--accent)",
+                              }
+                            : undefined
+                        }
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Search results */}
+                  {searchResults.length > 0 && (
+                    <div className="space-y-2">
+                      <p
+                        className="text-xs font-medium mb-2"
+                        style={{ color: "var(--muted)" }}
+                      >
+                        {searchResults.length} risultati trovati
+                      </p>
+                      {searchResults.map((result, idx) => (
+                        <button
+                          key={`${result.url}-${idx}`}
+                          onClick={() => handleImport(result.url)}
+                          disabled={importLoading}
+                          className="w-full text-left p-4 rounded-xl border transition-all hover:shadow-md disabled:opacity-50"
+                          style={{
+                            background: "var(--card-bg)",
+                            borderColor: "var(--card-border)",
+                          }}
+                        >
+                          <div className="flex items-start gap-3">
+                            <div className="flex-1 min-w-0">
+                              <h3
+                                className="font-bold text-sm leading-snug"
+                                style={{
+                                  fontFamily: "var(--font-title), serif",
+                                }}
+                              >
+                                {result.title}
+                              </h3>
+                              <p
+                                className="text-xs mt-0.5"
+                                style={{ color: "var(--muted)" }}
+                              >
+                                {result.author}
+                              </p>
+                            </div>
+                            <span
+                              className={cn(
+                                "flex-shrink-0 px-2 py-0.5 rounded-md text-xs font-bold",
+                                result.type === "acorduri"
+                                  ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"
+                                  : "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400"
+                              )}
+                            >
+                              {result.type === "acorduri"
+                                ? "Accordi"
+                                : "Testo"}
+                            </span>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
+                  {importLoading && (
+                    <div className="flex justify-center py-8">
+                      <div className="animate-spin rounded-full h-8 w-8 border-2 border-[var(--accent)] border-t-transparent" />
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* ── URL mode ── */}
+              {importMode === "url" && !scrapedSong && (
+                <div className="mb-6">
+                  <label className="block text-sm font-semibold mb-2">
+                    Link resursecrestine.ro
+                  </label>
+                  <div className="flex gap-2">
+                    <input
+                      type="url"
+                      placeholder="https://www.resursecrestine.ro/acorduri/..."
+                      value={importUrl}
+                      onChange={(e) => setImportUrl(e.target.value)}
+                      onKeyDown={(e) => e.key === "Enter" && handleImport()}
+                      className="flex-1 px-4 py-3 rounded-xl border text-sm focus:outline-none focus:ring-2 focus:ring-[var(--accent)]"
+                    />
+                    <button
+                      onClick={() => handleImport()}
+                      disabled={importLoading || !importUrl.trim()}
+                      className="px-6 py-3 rounded-xl text-white text-sm font-semibold disabled:opacity-50 transition-all"
+                      style={{ background: "var(--accent)" }}
+                    >
+                      {importLoading ? (
+                        <span className="animate-spin inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full" />
+                      ) : (
+                        "Importa"
+                      )}
+                    </button>
+                  </div>
+                  {importError && (
+                    <p className="mt-2 text-sm text-red-500">{importError}</p>
+                  )}
+                </div>
+              )}
+
+              {/* Error display for search mode */}
+              {importMode === "search" && importError && (
+                <p className="mb-4 text-sm text-red-500">{importError}</p>
+              )}
+
+              {/* Scraped song editor (shared by both modes) */}
               {scrapedSong && (
                 <div className="space-y-5">
+                  {/* Back to search */}
+                  <button
+                    onClick={() => {
+                      setScrapedSong(null);
+                      setImportSections([]);
+                      setImportError("");
+                    }}
+                    className="text-xs font-medium px-3 py-1.5 rounded-lg hover:bg-[var(--accent-light)] transition-colors"
+                    style={{ color: "var(--accent)" }}
+                  >
+                    ← Torna alla ricerca
+                  </button>
+
                   {/* Title & Author */}
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-xs font-semibold mb-1" style={{ color: "var(--muted)" }}>
-                        Titlu
+                      <label
+                        className="block text-xs font-semibold mb-1"
+                        style={{ color: "var(--muted)" }}
+                      >
+                        Titolo
                       </label>
                       <input
                         type="text"
@@ -1284,8 +1690,11 @@ export default function Home() {
                       />
                     </div>
                     <div>
-                      <label className="block text-xs font-semibold mb-1" style={{ color: "var(--muted)" }}>
-                        Autor
+                      <label
+                        className="block text-xs font-semibold mb-1"
+                        style={{ color: "var(--muted)" }}
+                      >
+                        Autore
                       </label>
                       <input
                         type="text"
@@ -1298,15 +1707,18 @@ export default function Home() {
 
                   {/* Key */}
                   <div>
-                    <label className="block text-xs font-semibold mb-1" style={{ color: "var(--muted)" }}>
-                      Gama (Tonalitate)
+                    <label
+                      className="block text-xs font-semibold mb-1"
+                      style={{ color: "var(--muted)" }}
+                    >
+                      Tonalita
                     </label>
                     <select
                       value={importKey}
                       onChange={(e) => setImportKey(e.target.value)}
                       className="px-3 py-2 rounded-lg border text-sm focus:outline-none focus:ring-2 focus:ring-[var(--accent)]"
                     >
-                      <option value="">Selecteaza...</option>
+                      <option value="">Seleziona...</option>
                       {ALL_KEYS.map((k) => (
                         <option key={k} value={k}>
                           {k}
@@ -1318,7 +1730,7 @@ export default function Home() {
                   {/* Sections editor */}
                   <div>
                     <div className="flex items-center justify-between mb-3">
-                      <h3 className="text-sm font-bold">Sectiuni</h3>
+                      <h3 className="text-sm font-bold">Sezioni</h3>
                       <button
                         onClick={() => {
                           setImportSections([
@@ -1332,9 +1744,12 @@ export default function Home() {
                           ]);
                         }}
                         className="text-xs px-3 py-1 rounded-lg font-semibold"
-                        style={{ background: "var(--accent-light)", color: "var(--accent)" }}
+                        style={{
+                          background: "var(--accent-light)",
+                          color: "var(--accent)",
+                        }}
                       >
-                        + Adauga sectiune
+                        + Aggiungi sezione
                       </button>
                     </div>
 
@@ -1357,37 +1772,53 @@ export default function Home() {
                                   ...next[idx],
                                   section_type: e.target.value as SectionType,
                                   section_label:
-                                    SECTION_LABELS[e.target.value as SectionType],
+                                    SECTION_LABELS_IT[
+                                      e.target.value as SectionType
+                                    ],
                                 };
                                 setImportSections(next);
                               }}
                               className="px-2 py-1 rounded-md border text-xs font-medium focus:outline-none"
                             >
-                              {Object.entries(SECTION_LABELS).map(([key, label]) => (
-                                <option key={key} value={key}>
-                                  {label}
-                                </option>
-                              ))}
+                              {Object.entries(SECTION_LABELS_IT).map(
+                                ([key, label]) => (
+                                  <option key={key} value={key}>
+                                    {label}
+                                  </option>
+                                )
+                              )}
                             </select>
                             <input
                               type="text"
                               value={section.section_label || ""}
                               onChange={(e) => {
                                 const next = [...importSections];
-                                next[idx] = { ...next[idx], section_label: e.target.value };
+                                next[idx] = {
+                                  ...next[idx],
+                                  section_label: e.target.value,
+                                };
                                 setImportSections(next);
                               }}
                               className="flex-1 px-2 py-1 rounded-md border text-xs focus:outline-none"
-                              placeholder="Label..."
+                              placeholder="Etichetta..."
                             />
                             <button
                               onClick={() => {
-                                setImportSections(importSections.filter((_, i) => i !== idx));
+                                setImportSections(
+                                  importSections.filter((_, i) => i !== idx)
+                                );
                               }}
                               className="p-1.5 rounded-md hover:bg-red-100 dark:hover:bg-red-900/30 text-red-500 transition-colors"
-                              aria-label="Sterge"
+                              aria-label="Elimina"
                             >
-                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                              <svg
+                                width="14"
+                                height="14"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="2"
+                              >
                                 <line x1="18" y1="6" x2="6" y2="18" />
                                 <line x1="6" y1="6" x2="18" y2="18" />
                               </svg>
@@ -1397,7 +1828,10 @@ export default function Home() {
                             value={section.content || ""}
                             onChange={(e) => {
                               const next = [...importSections];
-                              next[idx] = { ...next[idx], content: e.target.value };
+                              next[idx] = {
+                                ...next[idx],
+                                content: e.target.value,
+                              };
                               setImportSections(next);
                             }}
                             rows={6}
@@ -1410,49 +1844,56 @@ export default function Home() {
                   </div>
 
                   {/* Preview */}
-                  {importSections.length > 0 && importSections[0].content && (
-                    <div>
-                      <h3 className="text-sm font-bold mb-3">Previzualizare</h3>
-                      <div
-                        className="p-5 rounded-xl border"
-                        style={{
-                          background: "var(--card-bg)",
-                          borderColor: "var(--card-border)",
-                        }}
-                      >
-                        <div className="space-y-4">
-                          {importSections.map((section, idx) => (
-                            <div key={idx}>
-                              <span
-                                className={cn(
-                                  "section-badge mb-1.5",
-                                  sectionBgColor(
-                                    (section.section_type as SectionType) || "strofa"
-                                  )
-                                )}
-                              >
-                                {section.section_label}
-                              </span>
-                              <div
-                                className={cn(
-                                  "pl-4 border-l-[3px] mt-1.5",
-                                  sectionBorderColor(
-                                    (section.section_type as SectionType) || "strofa"
-                                  )
-                                )}
-                              >
-                                <div className="song-text text-sm">
-                                  {(section.content || "").split("\n").map((line, li) => (
-                                    <div key={li}>{renderChordLine(line, 0)}</div>
-                                  ))}
+                  {importSections.length > 0 &&
+                    importSections[0].content && (
+                      <div>
+                        <h3 className="text-sm font-bold mb-3">Anteprima</h3>
+                        <div
+                          className="p-5 rounded-xl border"
+                          style={{
+                            background: "var(--card-bg)",
+                            borderColor: "var(--card-border)",
+                          }}
+                        >
+                          <div className="space-y-4">
+                            {importSections.map((section, idx) => (
+                              <div key={idx}>
+                                <span
+                                  className={cn(
+                                    "section-badge mb-1.5",
+                                    sectionBgColor(
+                                      (section.section_type as SectionType) ||
+                                        "strofa"
+                                    )
+                                  )}
+                                >
+                                  {section.section_label}
+                                </span>
+                                <div
+                                  className={cn(
+                                    "pl-4 border-l-[3px] mt-1.5",
+                                    sectionBorderColor(
+                                      (section.section_type as SectionType) ||
+                                        "strofa"
+                                    )
+                                  )}
+                                >
+                                  <div className="song-text text-sm">
+                                    {(section.content || "")
+                                      .split("\n")
+                                      .map((line, li) => (
+                                        <div key={li}>
+                                          {renderChordLine(line, 0)}
+                                        </div>
+                                      ))}
+                                  </div>
                                 </div>
                               </div>
-                            </div>
-                          ))}
+                            ))}
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  )}
+                    )}
 
                   {/* Save button */}
                   <button
@@ -1461,7 +1902,9 @@ export default function Home() {
                     className="w-full py-3 rounded-xl text-white font-bold text-sm disabled:opacity-50 transition-all hover:shadow-lg"
                     style={{ background: "var(--accent)" }}
                   >
-                    {saving ? "Se salveaza..." : "Salveaza in Quaderno"}
+                    {saving
+                      ? "Salvataggio in corso..."
+                      : "Salva nel Quaderno"}
                   </button>
                 </div>
               )}
@@ -1474,8 +1917,11 @@ export default function Home() {
               {/* Metadata */}
               <div className="grid grid-cols-2 gap-3 mb-5">
                 <div>
-                  <label className="block text-xs font-semibold mb-1" style={{ color: "var(--muted)" }}>
-                    Titlu
+                  <label
+                    className="block text-xs font-semibold mb-1"
+                    style={{ color: "var(--muted)" }}
+                  >
+                    Titolo
                   </label>
                   <input
                     type="text"
@@ -1485,8 +1931,11 @@ export default function Home() {
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold mb-1" style={{ color: "var(--muted)" }}>
-                    Autor
+                  <label
+                    className="block text-xs font-semibold mb-1"
+                    style={{ color: "var(--muted)" }}
+                  >
+                    Autore
                   </label>
                   <input
                     type="text"
@@ -1496,7 +1945,10 @@ export default function Home() {
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold mb-1" style={{ color: "var(--muted)" }}>
+                  <label
+                    className="block text-xs font-semibold mb-1"
+                    style={{ color: "var(--muted)" }}
+                  >
                     Album
                   </label>
                   <input
@@ -1504,21 +1956,26 @@ export default function Home() {
                     value={editAlbum}
                     onChange={(e) => setEditAlbum(e.target.value)}
                     className="w-full px-3 py-2 rounded-lg border text-sm focus:outline-none focus:ring-2 focus:ring-[var(--accent)]"
-                    placeholder="Opcional"
+                    placeholder="Opzionale"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold mb-1" style={{ color: "var(--muted)" }}>
-                    Gama
+                  <label
+                    className="block text-xs font-semibold mb-1"
+                    style={{ color: "var(--muted)" }}
+                  >
+                    Tonalita
                   </label>
                   <select
                     value={editKey}
                     onChange={(e) => setEditKey(e.target.value)}
                     className="w-full px-3 py-2 rounded-lg border text-sm focus:outline-none focus:ring-2 focus:ring-[var(--accent)]"
                   >
-                    <option value="">Selecteaza...</option>
+                    <option value="">Seleziona...</option>
                     {ALL_KEYS.map((k) => (
-                      <option key={k} value={k}>{k}</option>
+                      <option key={k} value={k}>
+                        {k}
+                      </option>
                     ))}
                   </select>
                 </div>
@@ -1527,7 +1984,7 @@ export default function Home() {
               {/* Sections */}
               <div className="mb-5">
                 <div className="flex items-center justify-between mb-3">
-                  <h3 className="text-sm font-bold">Sectiuni</h3>
+                  <h3 className="text-sm font-bold">Sezioni</h3>
                   <button
                     onClick={() => {
                       setEditSections([
@@ -1544,9 +2001,12 @@ export default function Home() {
                       ]);
                     }}
                     className="text-xs px-3 py-1 rounded-lg font-semibold"
-                    style={{ background: "var(--accent-light)", color: "var(--accent)" }}
+                    style={{
+                      background: "var(--accent-light)",
+                      color: "var(--accent)",
+                    }}
                   >
-                    + Adauga
+                    + Aggiungi
                   </button>
                 </div>
 
@@ -1567,13 +2027,25 @@ export default function Home() {
                             onClick={() => {
                               if (idx === 0) return;
                               const next = [...editSections];
-                              [next[idx - 1], next[idx]] = [next[idx], next[idx - 1]];
-                              setEditSections(next.map((s, i) => ({ ...s, position: i })));
+                              [next[idx - 1], next[idx]] = [
+                                next[idx],
+                                next[idx - 1],
+                              ];
+                              setEditSections(
+                                next.map((s, i) => ({ ...s, position: i }))
+                              );
                             }}
                             disabled={idx === 0}
                             className="p-0.5 rounded hover:bg-[var(--accent-light)] disabled:opacity-20 transition-colors"
                           >
-                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <svg
+                              width="12"
+                              height="12"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2"
+                            >
                               <polyline points="18 15 12 9 6 15" />
                             </svg>
                           </button>
@@ -1581,13 +2053,25 @@ export default function Home() {
                             onClick={() => {
                               if (idx === editSections.length - 1) return;
                               const next = [...editSections];
-                              [next[idx], next[idx + 1]] = [next[idx + 1], next[idx]];
-                              setEditSections(next.map((s, i) => ({ ...s, position: i })));
+                              [next[idx], next[idx + 1]] = [
+                                next[idx + 1],
+                                next[idx],
+                              ];
+                              setEditSections(
+                                next.map((s, i) => ({ ...s, position: i }))
+                              );
                             }}
                             disabled={idx === editSections.length - 1}
                             className="p-0.5 rounded hover:bg-[var(--accent-light)] disabled:opacity-20 transition-colors"
                           >
-                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <svg
+                              width="12"
+                              height="12"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2"
+                            >
                               <polyline points="6 9 12 15 18 9" />
                             </svg>
                           </button>
@@ -1600,33 +2084,54 @@ export default function Home() {
                             next[idx] = {
                               ...next[idx],
                               section_type: e.target.value as SectionType,
-                              section_label: SECTION_LABELS[e.target.value as SectionType],
+                              section_label:
+                                SECTION_LABELS_IT[
+                                  e.target.value as SectionType
+                                ],
                             };
                             setEditSections(next);
                           }}
                           className="px-2 py-1 rounded-md border text-xs font-medium focus:outline-none"
                         >
-                          {Object.entries(SECTION_LABELS).map(([key, label]) => (
-                            <option key={key} value={key}>{label}</option>
-                          ))}
+                          {Object.entries(SECTION_LABELS_IT).map(
+                            ([key, label]) => (
+                              <option key={key} value={key}>
+                                {label}
+                              </option>
+                            )
+                          )}
                         </select>
                         <input
                           type="text"
                           value={section.section_label}
                           onChange={(e) => {
                             const next = [...editSections];
-                            next[idx] = { ...next[idx], section_label: e.target.value };
+                            next[idx] = {
+                              ...next[idx],
+                              section_label: e.target.value,
+                            };
                             setEditSections(next);
                           }}
                           className="flex-1 px-2 py-1 rounded-md border text-xs focus:outline-none"
                         />
                         <button
                           onClick={() => {
-                            setEditSections(editSections.filter((_, i) => i !== idx).map((s, i) => ({ ...s, position: i })));
+                            setEditSections(
+                              editSections
+                                .filter((_, i) => i !== idx)
+                                .map((s, i) => ({ ...s, position: i }))
+                            );
                           }}
                           className="p-1.5 rounded-md hover:bg-red-100 dark:hover:bg-red-900/30 text-red-500 transition-colors"
                         >
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <svg
+                            width="14"
+                            height="14"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                          >
                             <line x1="18" y1="6" x2="6" y2="18" />
                             <line x1="6" y1="6" x2="18" y2="18" />
                           </svg>
@@ -1636,7 +2141,10 @@ export default function Home() {
                         value={section.content}
                         onChange={(e) => {
                           const next = [...editSections];
-                          next[idx] = { ...next[idx], content: e.target.value };
+                          next[idx] = {
+                            ...next[idx],
+                            content: e.target.value,
+                          };
                           setEditSections(next);
                         }}
                         rows={6}
@@ -1655,13 +2163,13 @@ export default function Home() {
                   className="flex-1 py-3 rounded-xl text-white font-bold text-sm disabled:opacity-50 transition-all"
                   style={{ background: "var(--accent)" }}
                 >
-                  {saving ? "Se salveaza..." : "Salveaza modificarile"}
+                  {saving ? "Salvataggio in corso..." : "Salva le modifiche"}
                 </button>
                 <button
                   onClick={handleDelete}
                   className="px-5 py-3 rounded-xl border border-red-300 text-red-500 font-bold text-sm hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
                 >
-                  Sterge
+                  Elimina
                 </button>
               </div>
             </div>
