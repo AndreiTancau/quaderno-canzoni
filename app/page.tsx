@@ -265,6 +265,11 @@ export default function Home() {
 
   // Toast
   const [toast, setToast] = useState("");
+
+  // PDF export modal
+  const [pdfModalOpen, setPdfModalOpen] = useState(false);
+  const [pdfTitle, setPdfTitle] = useState("Quaderno Canzoni");
+  const [pdfPendingIds, setPdfPendingIds] = useState<string[]>([]);
   const toastRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const swipeStartRef = useRef<{ x: number; y: number } | null>(null);
 
@@ -696,14 +701,26 @@ export default function Home() {
 
   // ─── PDF export ───
   const handleExportPdf = useCallback(
-    async (ids: string[]) => {
+    (ids: string[]) => {
+      setPdfPendingIds(ids);
+      setPdfTitle("Quaderno Canzoni");
+      setPdfModalOpen(true);
+    },
+    []
+  );
+
+  const doExportPdf = useCallback(
+    async () => {
+      const ids = pdfPendingIds;
+      const customTitle = pdfTitle.trim() || "Quaderno Canzoni";
+      setPdfModalOpen(false);
       try {
         showToast("Generazione PDF...");
         const selectedSongs = songs.filter((s) => ids.includes(s.id));
         const res = await fetch("/api/pdf", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ songs: selectedSongs }),
+          body: JSON.stringify({ songs: selectedSongs, title: customTitle }),
         });
         if (!res.ok) throw new Error("PDF generation failed");
         const blob = await res.blob();
@@ -712,13 +729,13 @@ export default function Home() {
         a.href = url;
         a.download = ids.length === 1
           ? `${songs.find((s) => s.id === ids[0])?.title || "canzone"}.pdf`
-          : "quaderno-canzoni.pdf";
+          : `${customTitle.toLowerCase().replace(/\s+/g, "-")}.pdf`;
         a.click();
         URL.revokeObjectURL(url);
         showToast("PDF scaricato!");
       } catch { showToast("Errore nella generazione del PDF"); }
     },
-    [songs, showToast]
+    [songs, showToast, pdfPendingIds, pdfTitle]
   );
 
   const songById = useMemo(() => new Map(songs.map((s) => [s.id, s])), [songs]);
@@ -1607,6 +1624,39 @@ export default function Home() {
                 >
                   Elimina
                 </button>
+              </div>
+            </div>
+          )}
+
+          {/* ════════════ PDF TITLE MODAL ════════════ */}
+          {pdfModalOpen && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 animate-fade-in" onClick={() => setPdfModalOpen(false)}>
+              <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm mx-4 p-6" onClick={(e) => e.stopPropagation()}>
+                <h3 className="text-lg font-bold mb-4">Esporta PDF</h3>
+                <label className="block text-sm font-medium mb-1.5 muted">Titolo del documento</label>
+                <input
+                  type="text"
+                  value={pdfTitle}
+                  onChange={(e) => setPdfTitle(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") doExportPdf(); }}
+                  className="w-full rounded-xl border px-3 py-2.5 text-sm input-field mb-5"
+                  placeholder="Quaderno Canzoni"
+                  autoFocus
+                />
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => setPdfModalOpen(false)}
+                    className="flex-1 py-2.5 rounded-xl border text-sm font-semibold hover:bg-[var(--hover-bg)] transition-colors"
+                  >
+                    Annulla
+                  </button>
+                  <button
+                    onClick={doExportPdf}
+                    className="flex-1 py-2.5 rounded-xl text-sm font-bold btn-primary"
+                  >
+                    Esporta
+                  </button>
+                </div>
               </div>
             </div>
           )}

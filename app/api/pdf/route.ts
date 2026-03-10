@@ -5,6 +5,7 @@ import {
   Page,
   Text,
   View,
+  Link,
   StyleSheet,
   Font,
   renderToBuffer,
@@ -42,6 +43,7 @@ Font.register({
 Font.registerHyphenationCallback((word) => [word]);
 
 // ─── Colors ────────────────────────────────────────────────
+const BLUE = "#1a2e6e";       // dark navy blue for titles & keys
 const BLACK = "#000000";
 const GRAY = "#555555";
 
@@ -142,6 +144,14 @@ const s = StyleSheet.create({
     fontSize: 11,
     fontFamily: "NotoSans",
     flex: 1,
+    color: BLACK,
+  },
+  indexSongLink: {
+    fontSize: 11,
+    fontFamily: "NotoSans",
+    flex: 1,
+    color: BLACK,
+    textDecoration: "none",
   },
   indexKey: {
     fontSize: 10,
@@ -164,13 +174,13 @@ const s = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "flex-start",
-    marginBottom: 28,
+    marginBottom: 36,
   },
   songTitle: {
     fontSize: 20,
     fontFamily: "NotoSans",
     fontWeight: 700,
-    color: BLACK,
+    color: BLUE,
     flex: 1,
     lineHeight: 1.2,
   },
@@ -178,7 +188,7 @@ const s = StyleSheet.create({
     fontSize: 13,
     fontFamily: "NotoSans",
     fontWeight: 700,
-    color: BLACK,
+    color: BLUE,
     marginLeft: 20,
     flexShrink: 0,
   },
@@ -304,7 +314,7 @@ function renderRefrainBlock(block: SongBlock, blockIdx: number): React.ReactElem
 }
 
 // ─── PDF Document ──────────────────────────────────────────
-function SongBookDocument({ songs }: { songs: Song[] }) {
+function SongBookDocument({ songs, title }: { songs: Song[]; title: string }) {
   const sorted = [...songs].sort((a, b) => a.title.localeCompare(b.title, "ro"));
   const showCover = sorted.length > 1;
   const showIndex = sorted.length > 1;
@@ -322,7 +332,7 @@ function SongBookDocument({ songs }: { songs: Song[] }) {
 
   return React.createElement(
     Document,
-    { title: "Quaderno Canzoni" },
+    { title: title },
 
     // Cover page
     showCover &&
@@ -332,7 +342,7 @@ function SongBookDocument({ songs }: { songs: Song[] }) {
         React.createElement(
           View,
           { style: { flex: 1, justifyContent: "center", alignItems: "center" } },
-          React.createElement(Text, { style: s.coverTitle }, "QUADERNO CANZONI")
+          React.createElement(Text, { style: s.coverTitle }, title.toUpperCase())
         ),
         pageFooter
       ),
@@ -351,7 +361,11 @@ function SongBookDocument({ songs }: { songs: Song[] }) {
               View,
               { key: song.id, style: s.indexRow, wrap: false } as Record<string, unknown>,
               React.createElement(Text, { style: s.indexNum }, `${idx + 1}.`),
-              React.createElement(Text, { style: s.indexSongTitle }, song.title),
+              React.createElement(
+                Link,
+                { src: `#song-${song.id}`, style: s.indexSongLink } as Record<string, unknown>,
+                song.title
+              ),
               song.key
                 ? React.createElement(Text, { style: s.indexKey }, song.key)
                 : null,
@@ -378,7 +392,7 @@ function SongBookDocument({ songs }: { songs: Song[] }) {
 
       return React.createElement(
         Page,
-        { key: song.id, size: "LETTER", style: s.page, wrap: true },
+        { key: song.id, id: `song-${song.id}`, size: "LETTER", style: s.page, wrap: true } as Record<string, unknown>,
         // Song header: title left, key right
         React.createElement(
           View,
@@ -398,7 +412,7 @@ function SongBookDocument({ songs }: { songs: Song[] }) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { songs } = body;
+    const { songs, title } = body;
 
     if (!songs || !Array.isArray(songs) || songs.length === 0) {
       return NextResponse.json(
@@ -407,7 +421,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const doc = React.createElement(SongBookDocument, { songs });
+    const pdfTitle = typeof title === "string" && title.trim() ? title.trim() : "Quaderno Canzoni";
+    const doc = React.createElement(SongBookDocument, { songs, title: pdfTitle });
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const buffer = await renderToBuffer(doc as any);
     const uint8 = new Uint8Array(buffer);
