@@ -11,27 +11,27 @@ import {
 } from "@react-pdf/renderer";
 import type { Song } from "@/lib/types";
 
-// ─── Register Noto Serif (supports Romanian diacritics: ț, ă, î, ș, â) ──
+// ─── Register Noto Sans (supports Romanian diacritics: ț, ă, î, ș, â) ──
 Font.register({
-  family: "NotoSerif",
+  family: "NotoSans",
   fonts: [
     {
-      src: "https://fonts.gstatic.com/s/notoserif/v33/ga6iaw1J5X9T9RW6j9bNVls-hfgvz8JcMofYTa32J4wsL2JAlAhZqFCjwA.ttf",
+      src: "https://fonts.gstatic.com/s/notosans/v42/o-0mIpQlx3QUlC5A4PNB6Ryti20_6n1iPHjcz6L1SoM-jCpoiyD9A99d.ttf",
       fontWeight: 400,
       fontStyle: "normal",
     },
     {
-      src: "https://fonts.gstatic.com/s/notoserif/v33/ga6iaw1J5X9T9RW6j9bNVls-hfgvz8JcMofYTa32J4wsL2JAlAhZT1ejwA.ttf",
+      src: "https://fonts.gstatic.com/s/notosans/v42/o-0mIpQlx3QUlC5A4PNB6Ryti20_6n1iPHjcz6L1SoM-jCpoiyAaBN9d.ttf",
       fontWeight: 700,
       fontStyle: "normal",
     },
     {
-      src: "https://fonts.gstatic.com/s/notoserif/v33/ga6saw1J5X9T9RW6j9bNfFIMZhhWnFTyNZIQD1-_FXP0RgnaOg9MYBNLg8cP.ttf",
+      src: "https://fonts.gstatic.com/s/notosans/v42/o-0kIpQlx3QUlC5A4PNr4C5OaxRsfNNlKbCePevHtVtX57DGjDU1QDce6Vc.ttf",
       fontWeight: 400,
       fontStyle: "italic",
     },
     {
-      src: "https://fonts.gstatic.com/s/notoserif/v33/ga6saw1J5X9T9RW6j9bNfFIMZhhWnFTyNZIQD1-_FXP0RgnaOg9MYBOshMcP.ttf",
+      src: "https://fonts.gstatic.com/s/notosans/v42/o-0kIpQlx3QUlC5A4PNr4C5OaxRsfNNlKbCePevHtVtX57DGjDU1QNAZ6Vc.ttf",
       fontWeight: 700,
       fontStyle: "italic",
     },
@@ -41,21 +41,14 @@ Font.register({
 // ─── Disable hyphenation (no word cutting) ─────────────────
 Font.registerHyphenationCallback((word) => [word]);
 
-// ─── Colors (matching CantariOltenia) ──────────────────────
-const BLUE = "#1a2e6e";      // dark navy blue for titles & keys
-const BLACK = "#1a1a1a";     // near-black for body text
-const GRAY = "#666666";      // muted for page numbers
+// ─── Colors ────────────────────────────────────────────────
+const BLACK = "#000000";
+const GRAY = "#555555";
 
 // ─── Section detection ─────────────────────────────────────
-// Detects refrain/chorus lines: "R /:", "R:", "C /:", "C:", "Ritornello", "Coro", etc.
-function isRefrainLine(line: string): boolean {
+function isRefrainOrChorus(line: string): boolean {
   const t = line.trim();
-  return /^(R\s*\/?:?|Ritornello\b|Refren\b)/i.test(t);
-}
-
-function isChorusLine(line: string): boolean {
-  const t = line.trim();
-  return /^(C\s*\/?:?|Coro\b|Chorus\b)/i.test(t);
+  return /^(R\s*\/?\s*:?|C\s*\/?\s*:?|Ritornello\b|Refren\b|Coro\b|Chorus\b)/i.test(t);
 }
 
 function isStanzaStart(line: string): boolean {
@@ -64,7 +57,7 @@ function isStanzaStart(line: string): boolean {
 
 // ─── Parse song text into structured blocks ────────────────
 interface SongBlock {
-  type: "stanza" | "refrain" | "chorus";
+  type: "stanza" | "refrain";
   lines: string[];
 }
 
@@ -76,8 +69,8 @@ function parseSongBlocks(text: string): SongBlock[] {
     const lines = raw.split("\n").map((l) => l.trimEnd());
     const firstLine = lines[0]?.trim() || "";
 
-    if (isRefrainLine(firstLine) || isChorusLine(firstLine)) {
-      blocks.push({ type: isChorusLine(firstLine) ? "chorus" : "refrain", lines });
+    if (isRefrainOrChorus(firstLine)) {
+      blocks.push({ type: "refrain", lines });
     } else {
       blocks.push({ type: "stanza", lines });
     }
@@ -86,28 +79,28 @@ function parseSongBlocks(text: string): SongBlock[] {
   return blocks;
 }
 
-// ─── CantariOltenia-style PDF styles ───────────────────────
+// ─── Styles (matching reference image exactly) ─────────────
 const s = StyleSheet.create({
   // Song pages
   page: {
-    paddingTop: 50,
-    paddingBottom: 50,
-    paddingLeft: 55,
-    paddingRight: 55,
-    fontFamily: "NotoSerif",
+    paddingTop: 60,
+    paddingBottom: 60,
+    paddingLeft: 65,
+    paddingRight: 65,
+    fontFamily: "NotoSans",
     fontSize: 13,
     color: BLACK,
   },
   // Cover
   coverPage: {
-    paddingTop: 50,
-    paddingBottom: 50,
-    paddingHorizontal: 60,
-    fontFamily: "NotoSerif",
+    paddingTop: 60,
+    paddingBottom: 60,
+    paddingHorizontal: 65,
+    fontFamily: "NotoSans",
   },
   coverTitle: {
-    fontSize: 26,
-    fontFamily: "NotoSerif",
+    fontSize: 28,
+    fontFamily: "NotoSans",
     fontWeight: 700,
     textAlign: "center",
     color: BLACK,
@@ -115,17 +108,17 @@ const s = StyleSheet.create({
   },
   // Index
   indexPage: {
-    paddingTop: 50,
-    paddingBottom: 50,
-    paddingLeft: 55,
-    paddingRight: 55,
-    fontFamily: "NotoSerif",
+    paddingTop: 60,
+    paddingBottom: 60,
+    paddingLeft: 65,
+    paddingRight: 65,
+    fontFamily: "NotoSans",
     fontSize: 11,
     color: BLACK,
   },
   indexTitle: {
     fontSize: 16,
-    fontFamily: "NotoSerif",
+    fontFamily: "NotoSans",
     fontWeight: 700,
     textAlign: "center",
     marginBottom: 20,
@@ -147,14 +140,14 @@ const s = StyleSheet.create({
   },
   indexSongTitle: {
     fontSize: 11,
-    fontFamily: "NotoSerif",
+    fontFamily: "NotoSans",
     flex: 1,
   },
   indexKey: {
     fontSize: 10,
-    fontFamily: "NotoSerif",
+    fontFamily: "NotoSans",
     fontWeight: 700,
-    color: BLUE,
+    color: BLACK,
     marginLeft: 8,
     width: 45,
     textAlign: "right",
@@ -171,78 +164,68 @@ const s = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "flex-start",
-    marginBottom: 24,
+    marginBottom: 28,
   },
   songTitle: {
-    fontSize: 18,
-    fontFamily: "NotoSerif",
+    fontSize: 20,
+    fontFamily: "NotoSans",
     fontWeight: 700,
-    color: BLUE,
+    color: BLACK,
     flex: 1,
     lineHeight: 1.2,
   },
   songKey: {
-    fontSize: 14,
-    fontFamily: "NotoSerif",
+    fontSize: 13,
+    fontFamily: "NotoSans",
     fontWeight: 700,
-    color: BLUE,
-    marginLeft: 16,
+    color: BLACK,
+    marginLeft: 20,
     flexShrink: 0,
   },
   // Stanza block
   stanzaBlock: {
-    marginBottom: 14,
+    marginBottom: 18,
   },
-  // Stanza first line (with number like "1. Text here")
+  // Stanza first line (with number like "1. Cel Minunat, Salvatorul,")
   stanzaFirstLine: {
     fontSize: 13,
-    fontFamily: "NotoSerif",
-    lineHeight: 1.6,
+    fontFamily: "NotoSans",
+    lineHeight: 1.7,
     color: BLACK,
-    paddingLeft: 16,
-    textIndent: -16,
+    paddingLeft: 22,
+    textIndent: -22,
   },
-  // Stanza continuation lines (indented under first line)
+  // Stanza continuation lines (indented under the text, not the number)
   stanzaContinuationLine: {
     fontSize: 13,
-    fontFamily: "NotoSerif",
-    lineHeight: 1.6,
+    fontFamily: "NotoSans",
+    lineHeight: 1.7,
     color: BLACK,
-    paddingLeft: 30,
+    paddingLeft: 22,
   },
-  // Refrain/Chorus block - bold italic, indented
+  // Refrain/Chorus block - bold italic, centered
   refrainBlock: {
-    marginBottom: 14,
-    paddingLeft: 28,
+    marginBottom: 18,
+    alignItems: "center",
   },
   refrainLine: {
     fontSize: 13,
-    fontFamily: "NotoSerif",
+    fontFamily: "NotoSans",
     fontWeight: 700,
     fontStyle: "italic",
-    lineHeight: 1.6,
+    lineHeight: 1.7,
     color: BLACK,
-    paddingLeft: 20,
-    textIndent: -20,
-  },
-  refrainContinuationLine: {
-    fontSize: 13,
-    fontFamily: "NotoSerif",
-    fontWeight: 700,
-    fontStyle: "italic",
-    lineHeight: 1.6,
-    color: BLACK,
-    paddingLeft: 36,
+    textAlign: "center",
   },
   // Empty line spacer
   emptyLine: {
     height: 8,
   },
-  // Footer
+  // Footer (page number bottom-right)
   footer: {
     position: "absolute",
-    bottom: 24,
-    right: 55,
+    bottom: 30,
+    right: 65,
   },
   footerText: {
     fontSize: 11,
@@ -273,7 +256,7 @@ function renderStanzaBlock(block: SongBlock, blockIdx: number): React.ReactEleme
         )
       );
     } else {
-      // Continuation lines - indented
+      // Continuation lines - indented to align with text after number
       elements.push(
         React.createElement(
           Text,
@@ -291,7 +274,7 @@ function renderStanzaBlock(block: SongBlock, blockIdx: number): React.ReactEleme
   );
 }
 
-// ─── Render a refrain/chorus block ─────────────────────────
+// ─── Render a refrain/chorus block (bold italic, centered) ─
 function renderRefrainBlock(block: SongBlock, blockIdx: number): React.ReactElement {
   const elements: React.ReactElement[] = [];
 
@@ -304,25 +287,13 @@ function renderRefrainBlock(block: SongBlock, blockIdx: number): React.ReactElem
       return;
     }
 
-    if (lineIdx === 0) {
-      // First line (with R /: or C /: prefix) - hanging indent
-      elements.push(
-        React.createElement(
-          Text,
-          { key: `l-${blockIdx}-${lineIdx}`, style: s.refrainLine },
-          trimmed
-        )
-      );
-    } else {
-      // Continuation lines - extra indent
-      elements.push(
-        React.createElement(
-          Text,
-          { key: `l-${blockIdx}-${lineIdx}`, style: s.refrainContinuationLine },
-          trimmed
-        )
-      );
-    }
+    elements.push(
+      React.createElement(
+        Text,
+        { key: `l-${blockIdx}-${lineIdx}`, style: s.refrainLine },
+        trimmed
+      )
+    );
   });
 
   return React.createElement(
@@ -398,7 +369,7 @@ function SongBookDocument({ songs }: { songs: Song[] }) {
       const songElements: React.ReactElement[] = [];
 
       blocks.forEach((block, blockIdx) => {
-        if (block.type === "refrain" || block.type === "chorus") {
+        if (block.type === "refrain") {
           songElements.push(renderRefrainBlock(block, blockIdx));
         } else {
           songElements.push(renderStanzaBlock(block, blockIdx));
