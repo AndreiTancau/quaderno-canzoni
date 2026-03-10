@@ -158,7 +158,7 @@ export async function scrapeSong(url: string): Promise<ScrapedSong> {
         }
       });
 
-      text = sections.join("\n");
+      text = sections.join("\n\n");
     } else {
       // Fallback: plain text
       let content = $(".resized-text").html() || "";
