@@ -11,176 +11,333 @@ import {
 } from "@react-pdf/renderer";
 import type { Song } from "@/lib/types";
 
+// ─── Register Noto Serif (supports Romanian diacritics: ț, ă, î, ș, â) ──
+Font.register({
+  family: "NotoSerif",
+  fonts: [
+    {
+      src: "https://fonts.gstatic.com/s/notoserif/v33/ga6iaw1J5X9T9RW6j9bNVls-hfgvz8JcMofYTa32J4wsL2JAlAhZqFCjwA.ttf",
+      fontWeight: 400,
+      fontStyle: "normal",
+    },
+    {
+      src: "https://fonts.gstatic.com/s/notoserif/v33/ga6iaw1J5X9T9RW6j9bNVls-hfgvz8JcMofYTa32J4wsL2JAlAhZT1ejwA.ttf",
+      fontWeight: 700,
+      fontStyle: "normal",
+    },
+    {
+      src: "https://fonts.gstatic.com/s/notoserif/v33/ga6saw1J5X9T9RW6j9bNfFIMZhhWnFTyNZIQD1-_FXP0RgnaOg9MYBNLg8cP.ttf",
+      fontWeight: 400,
+      fontStyle: "italic",
+    },
+    {
+      src: "https://fonts.gstatic.com/s/notoserif/v33/ga6saw1J5X9T9RW6j9bNfFIMZhhWnFTyNZIQD1-_FXP0RgnaOg9MYBOshMcP.ttf",
+      fontWeight: 700,
+      fontStyle: "italic",
+    },
+  ],
+});
+
 // ─── Disable hyphenation (no word cutting) ─────────────────
 Font.registerHyphenationCallback((word) => [word]);
 
-// ─── Section label detection (same logic as frontend) ──────
-const SECTION_PATTERNS: [RegExp, string][] = [
-  [/^STROFA\s*\d*/i, "strofa"],
-  [/^RITORNELLO/i, "ritornello"],
-  [/^REFREN/i, "ritornello"],
-  [/^CHORUS/i, "ritornello"],
-  [/^BRIDGE/i, "bridge"],
-  [/^PUNTE/i, "bridge"],
-  [/^INTRO/i, "intro"],
-  [/^OUTRO/i, "outro"],
-  [/^CODA/i, "outro"],
-  [/^PRE[- ]?CHORUS/i, "bridge"],
-  [/^VERS\s*\d*/i, "strofa"],
-  [/^\d+\.\s*$/, "strofa"],
-  [/^R\s*[:\/]/i, "ritornello"],
-];
+// ─── Colors (matching CantariOltenia) ──────────────────────
+const BLUE = "#1a2e6e";      // dark navy blue for titles & keys
+const BLACK = "#1a1a1a";     // near-black for body text
+const GRAY = "#666666";      // muted for page numbers
 
-function isSectionLabel(line: string): boolean {
-  const trimmed = line.trim();
-  if (!trimmed) return false;
-  return SECTION_PATTERNS.some(([re]) => re.test(trimmed));
+// ─── Section detection ─────────────────────────────────────
+// Detects refrain/chorus lines: "R /:", "R:", "C /:", "C:", "Ritornello", "Coro", etc.
+function isRefrainLine(line: string): boolean {
+  const t = line.trim();
+  return /^(R\s*\/?:?|Ritornello\b|Refren\b)/i.test(t);
+}
+
+function isChorusLine(line: string): boolean {
+  const t = line.trim();
+  return /^(C\s*\/?:?|Coro\b|Chorus\b)/i.test(t);
+}
+
+function isStanzaStart(line: string): boolean {
+  return /^\d+\.?\s/.test(line.trim());
+}
+
+// ─── Parse song text into structured blocks ────────────────
+interface SongBlock {
+  type: "stanza" | "refrain" | "chorus";
+  lines: string[];
+}
+
+function parseSongBlocks(text: string): SongBlock[] {
+  const rawBlocks = text.split(/\n\s*\n/).filter((b) => b.trim());
+  const blocks: SongBlock[] = [];
+
+  for (const raw of rawBlocks) {
+    const lines = raw.split("\n").map((l) => l.trimEnd());
+    const firstLine = lines[0]?.trim() || "";
+
+    if (isRefrainLine(firstLine) || isChorusLine(firstLine)) {
+      blocks.push({ type: isChorusLine(firstLine) ? "chorus" : "refrain", lines });
+    } else {
+      blocks.push({ type: "stanza", lines });
+    }
+  }
+
+  return blocks;
 }
 
 // ─── CantariOltenia-style PDF styles ───────────────────────
 const s = StyleSheet.create({
+  // Song pages
   page: {
-    paddingTop: 40,
-    paddingBottom: 45,
-    paddingHorizontal: 45,
-    fontFamily: "Helvetica",
-    fontSize: 11,
-    color: "#000",
+    paddingTop: 50,
+    paddingBottom: 50,
+    paddingLeft: 55,
+    paddingRight: 55,
+    fontFamily: "NotoSerif",
+    fontSize: 13,
+    color: BLACK,
   },
   // Cover
   coverPage: {
-    display: "flex",
-    flexDirection: "column",
-    justifyContent: "center",
-    alignItems: "center",
-    padding: 60,
-    fontFamily: "Helvetica",
+    paddingTop: 50,
+    paddingBottom: 50,
+    paddingHorizontal: 60,
+    fontFamily: "NotoSerif",
   },
   coverTitle: {
-    fontSize: 28,
-    fontFamily: "Helvetica-Bold",
+    fontSize: 26,
+    fontFamily: "NotoSerif",
+    fontWeight: 700,
     textAlign: "center",
-    textTransform: "uppercase",
-    letterSpacing: 2,
-    marginBottom: 12,
-  },
-  coverSubtitle: {
-    fontSize: 12,
-    textAlign: "center",
-    color: "#666",
+    color: BLACK,
+    letterSpacing: 1,
   },
   // Index
+  indexPage: {
+    paddingTop: 50,
+    paddingBottom: 50,
+    paddingLeft: 55,
+    paddingRight: 55,
+    fontFamily: "NotoSerif",
+    fontSize: 11,
+    color: BLACK,
+  },
   indexTitle: {
-    fontSize: 14,
-    fontFamily: "Helvetica-Bold",
+    fontSize: 16,
+    fontFamily: "NotoSerif",
+    fontWeight: 700,
     textAlign: "center",
-    marginBottom: 14,
-    textTransform: "uppercase",
-    letterSpacing: 1,
+    marginBottom: 20,
+    color: BLACK,
   },
   indexRow: {
     flexDirection: "row",
     alignItems: "baseline",
-    paddingVertical: 2,
+    paddingVertical: 2.5,
     borderBottomWidth: 0.3,
     borderBottomColor: "#ddd",
   },
   indexNum: {
-    fontSize: 9,
-    width: 20,
-    textAlign: "right",
-    marginRight: 6,
-    color: "#666",
-  },
-  indexSongTitle: {
     fontSize: 10,
-    flex: 1,
-  },
-  indexAuthor: {
-    fontSize: 8,
-    color: "#888",
-    marginLeft: 6,
-    maxWidth: 120,
-  },
-  indexKey: {
-    fontSize: 9,
-    fontFamily: "Helvetica-Bold",
-    marginLeft: 6,
-    width: 30,
-    textAlign: "center",
-  },
-  indexPage: {
-    fontSize: 9,
-    color: "#666",
     width: 22,
     textAlign: "right",
+    marginRight: 8,
+    color: GRAY,
   },
-  // Song page
-  songHeader: {
-    marginBottom: 14,
-    borderBottomWidth: 0.5,
-    borderBottomColor: "#ccc",
-    paddingBottom: 8,
+  indexSongTitle: {
+    fontSize: 11,
+    fontFamily: "NotoSerif",
+    flex: 1,
   },
+  indexKey: {
+    fontSize: 10,
+    fontFamily: "NotoSerif",
+    fontWeight: 700,
+    color: BLUE,
+    marginLeft: 8,
+    width: 45,
+    textAlign: "right",
+  },
+  indexPageNum: {
+    fontSize: 10,
+    color: GRAY,
+    width: 24,
+    textAlign: "right",
+    marginLeft: 6,
+  },
+  // Song header
   songHeaderRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "flex-start",
+    marginBottom: 24,
   },
   songTitle: {
-    fontSize: 13,
-    fontFamily: "Helvetica-Bold",
+    fontSize: 18,
+    fontFamily: "NotoSerif",
+    fontWeight: 700,
+    color: BLUE,
     flex: 1,
+    lineHeight: 1.2,
   },
   songKey: {
-    fontSize: 11,
-    fontFamily: "Helvetica-Bold",
-    marginLeft: 12,
-    color: "#333",
+    fontSize: 14,
+    fontFamily: "NotoSerif",
+    fontWeight: 700,
+    color: BLUE,
+    marginLeft: 16,
+    flexShrink: 0,
   },
-  songAuthor: {
-    fontSize: 9,
-    color: "#666",
-    marginTop: 3,
+  // Stanza block
+  stanzaBlock: {
+    marginBottom: 14,
   },
-  // Song text
-  sectionLabel: {
-    fontSize: 8,
-    fontFamily: "Helvetica-Bold",
-    textTransform: "uppercase",
-    letterSpacing: 0.5,
-    color: "#555",
-    marginTop: 10,
-    marginBottom: 3,
+  // Stanza first line (with number like "1. Text here")
+  stanzaFirstLine: {
+    fontSize: 13,
+    fontFamily: "NotoSerif",
+    lineHeight: 1.6,
+    color: BLACK,
+    paddingLeft: 16,
+    textIndent: -16,
   },
-  songLine: {
-    fontSize: 10,
-    lineHeight: 1.55,
-    fontFamily: "Helvetica",
+  // Stanza continuation lines (indented under first line)
+  stanzaContinuationLine: {
+    fontSize: 13,
+    fontFamily: "NotoSerif",
+    lineHeight: 1.6,
+    color: BLACK,
+    paddingLeft: 30,
   },
-  songLineEmpty: {
-    height: 6,
+  // Refrain/Chorus block - bold italic, indented
+  refrainBlock: {
+    marginBottom: 14,
+    paddingLeft: 28,
+  },
+  refrainLine: {
+    fontSize: 13,
+    fontFamily: "NotoSerif",
+    fontWeight: 700,
+    fontStyle: "italic",
+    lineHeight: 1.6,
+    color: BLACK,
+    paddingLeft: 20,
+    textIndent: -20,
+  },
+  refrainContinuationLine: {
+    fontSize: 13,
+    fontFamily: "NotoSerif",
+    fontWeight: 700,
+    fontStyle: "italic",
+    lineHeight: 1.6,
+    color: BLACK,
+    paddingLeft: 36,
+  },
+  // Empty line spacer
+  emptyLine: {
+    height: 8,
   },
   // Footer
   footer: {
     position: "absolute",
-    bottom: 22,
-    left: 0,
-    right: 0,
-    textAlign: "center",
+    bottom: 24,
+    right: 55,
   },
   footerText: {
-    fontSize: 8,
-    color: "#999",
+    fontSize: 11,
+    color: BLACK,
   },
 });
+
+// ─── Render a stanza block ─────────────────────────────────
+function renderStanzaBlock(block: SongBlock, blockIdx: number): React.ReactElement {
+  const elements: React.ReactElement[] = [];
+
+  block.lines.forEach((line, lineIdx) => {
+    const trimmed = line.trim();
+    if (trimmed === "") {
+      elements.push(
+        React.createElement(View, { key: `e-${blockIdx}-${lineIdx}`, style: s.emptyLine })
+      );
+      return;
+    }
+
+    if (lineIdx === 0 && isStanzaStart(trimmed)) {
+      // First line with stanza number - hanging indent
+      elements.push(
+        React.createElement(
+          Text,
+          { key: `l-${blockIdx}-${lineIdx}`, style: s.stanzaFirstLine },
+          trimmed
+        )
+      );
+    } else {
+      // Continuation lines - indented
+      elements.push(
+        React.createElement(
+          Text,
+          { key: `l-${blockIdx}-${lineIdx}`, style: s.stanzaContinuationLine },
+          trimmed
+        )
+      );
+    }
+  });
+
+  return React.createElement(
+    View,
+    { key: `block-${blockIdx}`, style: s.stanzaBlock, wrap: false } as Record<string, unknown>,
+    ...elements
+  );
+}
+
+// ─── Render a refrain/chorus block ─────────────────────────
+function renderRefrainBlock(block: SongBlock, blockIdx: number): React.ReactElement {
+  const elements: React.ReactElement[] = [];
+
+  block.lines.forEach((line, lineIdx) => {
+    const trimmed = line.trim();
+    if (trimmed === "") {
+      elements.push(
+        React.createElement(View, { key: `e-${blockIdx}-${lineIdx}`, style: s.emptyLine })
+      );
+      return;
+    }
+
+    if (lineIdx === 0) {
+      // First line (with R /: or C /: prefix) - hanging indent
+      elements.push(
+        React.createElement(
+          Text,
+          { key: `l-${blockIdx}-${lineIdx}`, style: s.refrainLine },
+          trimmed
+        )
+      );
+    } else {
+      // Continuation lines - extra indent
+      elements.push(
+        React.createElement(
+          Text,
+          { key: `l-${blockIdx}-${lineIdx}`, style: s.refrainContinuationLine },
+          trimmed
+        )
+      );
+    }
+  });
+
+  return React.createElement(
+    View,
+    { key: `block-${blockIdx}`, style: s.refrainBlock, wrap: false } as Record<string, unknown>,
+    ...elements
+  );
+}
 
 // ─── PDF Document ──────────────────────────────────────────
 function SongBookDocument({ songs }: { songs: Song[] }) {
   const sorted = [...songs].sort((a, b) => a.title.localeCompare(b.title, "ro"));
   const showCover = sorted.length > 1;
   const showIndex = sorted.length > 1;
-  const indexPages = Math.max(1, Math.ceil(sorted.length / 45));
+  const indexPages = Math.max(1, Math.ceil(sorted.length / 40));
   const songStartPage = (showCover ? 1 : 0) + (showIndex ? indexPages : 0) + 1;
 
   const pageFooter = React.createElement(
@@ -200,12 +357,11 @@ function SongBookDocument({ songs }: { songs: Song[] }) {
     showCover &&
       React.createElement(
         Page,
-        { size: "A4", style: s.coverPage },
+        { size: "LETTER", style: s.coverPage },
         React.createElement(
           View,
           { style: { flex: 1, justifyContent: "center", alignItems: "center" } },
-          React.createElement(Text, { style: s.coverTitle }, "Quaderno Canzoni"),
-          React.createElement(Text, { style: s.coverSubtitle }, `${sorted.length} canzoni`)
+          React.createElement(Text, { style: s.coverTitle }, "QUADERNO CANZONI")
         ),
         pageFooter
       ),
@@ -214,8 +370,8 @@ function SongBookDocument({ songs }: { songs: Song[] }) {
     showIndex &&
       React.createElement(
         Page,
-        { size: "A4", style: s.page, wrap: true },
-        React.createElement(Text, { style: s.indexTitle }, "Indice"),
+        { size: "LETTER", style: s.indexPage, wrap: true },
+        React.createElement(Text, { style: s.indexTitle }, "INDICE"),
         React.createElement(
           View,
           null,
@@ -225,59 +381,42 @@ function SongBookDocument({ songs }: { songs: Song[] }) {
               { key: song.id, style: s.indexRow, wrap: false } as Record<string, unknown>,
               React.createElement(Text, { style: s.indexNum }, `${idx + 1}.`),
               React.createElement(Text, { style: s.indexSongTitle }, song.title),
-              React.createElement(Text, { style: s.indexAuthor }, song.author),
               song.key
                 ? React.createElement(Text, { style: s.indexKey }, song.key)
                 : null,
-              React.createElement(Text, { style: s.indexPage }, String(songStartPage + idx))
+              React.createElement(Text, { style: s.indexPageNum }, String(songStartPage + idx))
             )
           )
         ),
         pageFooter
       ),
 
-    // Song pages (one per song, wraps to multiple pages if needed)
+    // Song pages
     ...sorted.map((song) => {
-      const lines = song.text.split("\n");
-      const elements: React.ReactElement[] = [];
+      const blocks = parseSongBlocks(song.text);
 
-      lines.forEach((line, i) => {
-        const trimmed = line.trim();
+      const songElements: React.ReactElement[] = [];
 
-        if (trimmed === "") {
-          elements.push(
-            React.createElement(View, { key: `e-${i}`, style: s.songLineEmpty })
-          );
-        } else if (isSectionLabel(trimmed)) {
-          elements.push(
-            React.createElement(Text, { key: `s-${i}`, style: s.sectionLabel }, trimmed)
-          );
+      blocks.forEach((block, blockIdx) => {
+        if (block.type === "refrain" || block.type === "chorus") {
+          songElements.push(renderRefrainBlock(block, blockIdx));
         } else {
-          elements.push(
-            React.createElement(Text, { key: `l-${i}`, style: s.songLine }, line)
-          );
+          songElements.push(renderStanzaBlock(block, blockIdx));
         }
       });
 
       return React.createElement(
         Page,
-        { key: song.id, size: "A4", style: s.page, wrap: true },
-        // Song header
+        { key: song.id, size: "LETTER", style: s.page, wrap: true },
+        // Song header: title left, key right
         React.createElement(
           View,
-          { style: s.songHeader, wrap: false } as Record<string, unknown>,
-          React.createElement(
-            View,
-            { style: s.songHeaderRow },
-            React.createElement(Text, { style: s.songTitle }, song.title),
-            song.key ? React.createElement(Text, { style: s.songKey }, song.key) : null
-          ),
-          song.author
-            ? React.createElement(Text, { style: s.songAuthor }, song.author)
-            : null
+          { style: s.songHeaderRow, wrap: false } as Record<string, unknown>,
+          React.createElement(Text, { style: s.songTitle }, song.title),
+          song.key ? React.createElement(Text, { style: s.songKey }, song.key) : null
         ),
-        // Song text
-        ...elements,
+        // Song body
+        ...songElements,
         pageFooter
       );
     })
