@@ -212,7 +212,6 @@ export default function Home() {
   const [activeTab, setActiveTab] = useState<AppTab>("indice");
   const [songs, setSongs] = useState<Song[]>([]);
   const [selectedSong, setSelectedSong] = useState<Song | null>(null);
-  const [darkMode, setDarkMode] = useState(false);
   const [loading, setLoading] = useState(true);
   const [authReady, setAuthReady] = useState(false);
   const [isUnlocked, setIsUnlocked] = useState(false);
@@ -229,7 +228,6 @@ export default function Home() {
   const [selectMode, setSelectMode] = useState(false);
 
   // Song view
-  const [fontSizeMode, setFontSizeMode] = useState<"normal" | "large" | "xlarge">("normal");
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [liveSetIds, setLiveSetIds] = useState<string[]>([]);
 
@@ -271,15 +269,6 @@ export default function Home() {
   const swipeStartRef = useRef<{ x: number; y: number } | null>(null);
 
   const isAdmin = selectedUser.role === "admin";
-
-  // ─── Dark mode ───
-  useEffect(() => {
-    if (darkMode) {
-      document.documentElement.classList.add("dark");
-    } else {
-      document.documentElement.classList.remove("dark");
-    }
-  }, [darkMode]);
 
   // ─── Toast ───
   const showToast = useCallback((msg: string) => {
@@ -907,7 +896,7 @@ export default function Home() {
   // ─── RENDER ─────────────────────────────────────────────
 
   return (
-    <div className={cn(fontSizeMode === "large" && "font-large", fontSizeMode === "xlarge" && "font-xlarge")}>
+    <div>
       {/* Toast */}
       {toast && (
         <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[100] animate-fade-in">
@@ -943,14 +932,6 @@ export default function Home() {
               </h1>
 
               <div className="flex items-center gap-1.5">
-                <button
-                  onClick={() => setDarkMode(!darkMode)}
-                  className="p-2 rounded-lg hover:bg-[var(--hover-bg)] transition-colors text-sm"
-                  aria-label="Tema"
-                >
-                  {darkMode ? "\u2600\uFE0F" : "\uD83C\uDF19"}
-                </button>
-
                 {isAdmin && (
                   <span className="px-2.5 py-1.5 rounded-lg text-xs font-semibold btn-primary">
                     Admin
@@ -1135,18 +1116,7 @@ export default function Home() {
 
                   {/* Controls bar */}
                   <div className="no-print song-toolbar card">
-                    <div className="flex items-center gap-1">
-                      {(["normal", "large", "xlarge"] as const).map((size) => (
-                        <button
-                          key={size}
-                          onClick={() => setFontSizeMode(size)}
-                          className={cn("song-tool-btn", fontSizeMode === size && "btn-primary")}
-                        >
-                          {size === "normal" ? "A" : size === "large" ? "A+" : "A++"}
-                        </button>
-                      ))}
-                    </div>
-
+                    {/* Left: action icons */}
                     <button
                       onClick={() => setIsFullscreen(!isFullscreen)}
                       className="song-tool-icon"
@@ -1173,28 +1143,49 @@ export default function Home() {
                       </svg>
                     </button>
 
+                    {/* Center: live set navigation */}
                     {hasLiveSet && (
-                      <div className="song-live-inline">
+                      <div className="song-nav-group">
                         <button
                           onClick={() => navigateLive("prev")}
-                          className="song-tool-btn"
+                          className="song-tool-icon"
                           disabled={currentLiveIndex <= 0}
+                          aria-label="Precedente"
                         >
-                          ←
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <polyline points="15 18 9 12 15 6" />
+                          </svg>
                         </button>
-                        <span className="song-live-inline-text">
-                          {currentLiveIndex + 1}/{liveSongs.length}
-                        </span>
+
+                        <select
+                          value={selectedSong.id}
+                          onChange={(e) => {
+                            const song = liveSongs.find((s) => s.id === e.target.value);
+                            if (song) { setSelectedSong(song); }
+                          }}
+                          className="song-index-select"
+                        >
+                          {liveSongs.map((s, i) => (
+                            <option key={s.id} value={s.id}>
+                              {i + 1}. {s.title}
+                            </option>
+                          ))}
+                        </select>
+
                         <button
                           onClick={() => navigateLive("next")}
-                          className="song-tool-btn"
+                          className="song-tool-icon"
                           disabled={currentLiveIndex < 0 || currentLiveIndex >= liveSongs.length - 1}
+                          aria-label="Successiva"
                         >
-                          →
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <polyline points="9 18 15 12 9 6" />
+                          </svg>
                         </button>
                       </div>
                     )}
 
+                    {/* Right: edit */}
                     {isAdmin && (
                       <button onClick={() => startEdit(selectedSong)} className="ml-auto song-tool-btn btn-primary">
                         Modifica
@@ -1362,19 +1353,37 @@ export default function Home() {
                   {searchResults.length > 0 && (
                     <div className="space-y-2">
                       <p className="text-xs font-medium mb-2 muted">{searchResults.length} risultati</p>
-                      {searchResults.map((result, idx) => (
-                        <button
-                          key={`${result.url}-${idx}`}
-                          onClick={() => handleImport(result.url)}
-                          disabled={importLoading}
-                          className="w-full text-left p-4 rounded-xl border transition-all hover:shadow-md disabled:opacity-50 card"
-                        >
-                          <div className="flex-1 min-w-0">
-                            <h3 className="font-bold text-sm leading-snug title-font">{result.title}</h3>
-                            <p className="text-xs mt-0.5 muted">{result.author}</p>
+                      {searchResults.map((result, idx) => {
+                        const alreadyInQuaderno = songs.some(
+                          (s) => s.title.toLowerCase().trim() === result.title.toLowerCase().trim()
+                        );
+                        return (
+                          <div
+                            key={`${result.url}-${idx}`}
+                            className={cn("w-full text-left p-4 rounded-xl border transition-all card", alreadyInQuaderno && "opacity-60")}
+                          >
+                            <div className="flex items-center gap-3">
+                              <div className="flex-1 min-w-0">
+                                <h3 className="font-bold text-sm leading-snug title-font">{result.title}</h3>
+                                <p className="text-xs mt-0.5 muted">{result.author}</p>
+                              </div>
+                              {alreadyInQuaderno ? (
+                                <span className="text-xs font-medium px-3 py-1.5 rounded-lg bg-[var(--secondary)] muted whitespace-nowrap">
+                                  Nel quaderno
+                                </span>
+                              ) : (
+                                <button
+                                  onClick={() => handleImport(result.url)}
+                                  disabled={importLoading}
+                                  className="text-xs font-semibold px-4 py-1.5 rounded-lg btn-primary whitespace-nowrap disabled:opacity-50"
+                                >
+                                  Importa
+                                </button>
+                              )}
+                            </div>
                           </div>
-                        </button>
-                      ))}
+                        );
+                      })}
                     </div>
                   )}
 
@@ -1573,7 +1582,7 @@ export default function Home() {
                 </button>
                 <button
                   onClick={handleDelete}
-                  className="px-5 py-3 rounded-xl border border-red-300 text-red-500 font-bold text-sm hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+                  className="px-5 py-3 rounded-xl border border-red-300 text-red-500 font-bold text-sm hover:bg-red-50 transition-colors"
                 >
                   Elimina
                 </button>
