@@ -1,16 +1,9 @@
 import * as cheerio from "cheerio";
-import type { ScrapedSong } from "./types";
-
-export interface SearchResult {
-  url: string;
-  title: string;
-  author: string;
-  type: "acorduri" | "cantece";
-}
+import type { ScrapedSong, SearchResult } from "./types";
 
 /**
  * Search resursecrestine.ro for songs.
- * Uses the URL pattern: /cauta/{query}/{type}/{field}
+ * URL pattern: /cauta/{query}/{type}/{field}
  * type: 1 = Acorduri (with chords), 2 = Cantece (lyrics only)
  */
 export async function searchSongs(
@@ -34,8 +27,7 @@ export async function searchSongs(
       const url = `https://www.resursecrestine.ro/cauta/${encodeURIComponent(query)}/${t.id}/titlu`;
       const res = await fetch(url, {
         headers: {
-          "User-Agent":
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+          "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
           Accept: "text/html,application/xhtml+xml",
         },
         redirect: "follow",
@@ -52,12 +44,7 @@ export async function searchSongs(
         const author = $(el).find(".brownLink").first().text().trim() || "Anonim";
 
         if (href && title) {
-          results.push({
-            url: href,
-            title,
-            author,
-            type: t.label,
-          });
+          results.push({ url: href, title, author, type: t.label });
         }
       });
     } catch (err) {
@@ -70,13 +57,13 @@ export async function searchSongs(
 
 /**
  * Scrape a song from resursecrestine.ro.
- * Supports both /acorduri/ (with chords) and /cantece/ (lyrics-only) pages.
+ * Supports both /acorduri/ and /cantece/ pages.
+ * Always returns plain lyrics text (chords are stripped).
  */
 export async function scrapeSong(url: string): Promise<ScrapedSong> {
   const res = await fetch(url, {
     headers: {
-      "User-Agent":
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+      "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
       Accept: "text/html,application/xhtml+xml",
     },
   });
@@ -88,107 +75,75 @@ export async function scrapeSong(url: string): Promise<ScrapedSong> {
   const html = await res.text();
   const $ = cheerio.load(html);
 
-  // Detect page type
   const isAcorduriPage = url.includes("/acorduri/") || $(".stil-acorduri").length > 0;
 
-  // Extract title
+  // Title
   const title =
     $(".titleContent").first().text().trim() ||
     $(".title .titleContent").first().text().trim() ||
     "Fara titlu";
 
-  // Extract author and album from the dotted section
+  // Author & album
   const dottedSection = $(".dottedSection").first();
   let author = "Anonim";
   let album: string | null = null;
 
   if (isAcorduriPage) {
-    // /acorduri/ pages: links are in order (author, album)
     const blueLinks = dottedSection.find(".blueLink");
     author = blueLinks.eq(0).text().trim() || "Anonim";
     const albumText = blueLinks.eq(1).text().trim();
-    album =
-      albumText && albumText.toLowerCase() !== "fara album" ? albumText : null;
+    album = albumText && albumText.toLowerCase() !== "fara album" ? albumText : null;
   } else {
-    // /cantece/ pages: parse by label text
     const dottedHtml = dottedSection.html() || "";
-
-    // Author: text after "Autor:" followed by a blueLink
-    const authorMatch = dottedHtml.match(
-      /Autor:\s*<a[^>]*class="blueLink"[^>]*>\s*([\s\S]*?)\s*<\/a>/i
-    );
-    if (authorMatch) {
-      author = authorMatch[1].trim() || "Anonim";
-    }
-
-    // Album: text after "Album:" followed by a blueLink
-    const albumMatch = dottedHtml.match(
-      /Album:\s*<a[^>]*class="blueLink"[^>]*>\s*([\s\S]*?)\s*<\/a>/i
-    );
+    const authorMatch = dottedHtml.match(/Autor:\s*<a[^>]*class="blueLink"[^>]*>\s*([\s\S]*?)\s*<\/a>/i);
+    if (authorMatch) author = authorMatch[1].trim() || "Anonim";
+    const albumMatch = dottedHtml.match(/Album:\s*<a[^>]*class="blueLink"[^>]*>\s*([\s\S]*?)\s*<\/a>/i);
     if (albumMatch) {
       const albumText = albumMatch[1].trim();
-      album =
-        albumText && albumText.toLowerCase() !== "fara album"
-          ? albumText
-          : null;
+      album = albumText && albumText.toLowerCase() !== "fara album" ? albumText : null;
     }
   }
 
-  let chordContent: string;
-  let rawContent: string;
+  let text: string;
 
   if (isAcorduriPage) {
-    // ─── /acorduri/ pages: extract chords + lyrics from .stil-acorduri ───
+    // /acorduri/ pages: get text from .stil-acorduri and strip chord tags
     const chordEl = $(".stil-acorduri");
-    let chordHtml = chordEl.html() || "";
+    let content = chordEl.html() || "";
 
-    // Convert <a class="nice-acord" rel="G">G</a> → [G]
-    chordHtml = chordHtml.replace(
-      /<a[^>]*class="nice-acord"[^>]*rel="([^"]*)"[^>]*>[^<]*<\/a>/gi,
-      "[$1]"
-    );
+    // Remove chord tags entirely (they're <a class="nice-acord"> tags)
+    content = content.replace(/<a[^>]*class="nice-acord"[^>]*>[^<]*<\/a>/gi, "");
+    content = content.replace(/<br\s*\/?>/gi, "\n");
+    content = content.replace(/&nbsp;/gi, " ");
+    content = content.replace(/<[^>]+>/g, "");
+    content = decodeEntities(content);
 
-    // Convert line breaks to newlines
-    chordHtml = chordHtml.replace(/<br\s*\/?>/gi, "\n");
-
-    // Convert &nbsp; to spaces
-    chordHtml = chordHtml.replace(/&nbsp;/gi, " ");
-
-    // Remove remaining HTML tags
-    chordHtml = chordHtml.replace(/<[^>]+>/g, "");
-
-    // Decode HTML entities
-    chordHtml = decodeEntities(chordHtml);
-
-    chordContent = chordHtml.trim();
-    rawContent = chordContent.replace(/\[[^\]]+\]/g, "").trim();
+    // Clean up: remove excessive blank lines, trim each line
+    text = cleanLyrics(content);
   } else {
-    // ─── /cantece/ pages: extract structured lyrics from strofa divs ───
+    // /cantece/ pages: structured lyrics from strofa divs
     const strofaEls = $(".slides.carousel-mode .strofa");
 
     if (strofaEls.length > 0) {
-      // Structured lyrics with section labels
       const sections: string[] = [];
 
       strofaEls.each((_, el) => {
         const label = $(el).find(".strofa-label").text().trim();
-        let text = $(el).find(".strofa-text").html() || "";
+        let sText = $(el).find(".strofa-text").html() || "";
+        sText = sText.replace(/<br\s*\/?>/gi, "\n");
+        sText = sText.replace(/<[^>]+>/g, "");
+        sText = decodeEntities(sText).trim();
 
-        // Convert <br> to newlines
-        text = text.replace(/<br\s*\/?>/gi, "\n");
-        text = text.replace(/<[^>]+>/g, "");
-        text = decodeEntities(text).trim();
-
-        if (label && text) {
-          // Convert Romanian section labels to our marker format
+        if (label && sText) {
           const normalizedLabel = label.toLowerCase();
           let marker = "";
-          if (normalizedLabel.startsWith("refren")) {
-            marker = "R: ";
+          if (normalizedLabel.startsWith("refren") || normalizedLabel.startsWith("ref")) {
+            marker = "R /: ";
           } else if (normalizedLabel.startsWith("strof")) {
-            // Extract number from "Strofă 1", "Strofă 2", etc.
             const num = label.match(/\d+/);
             marker = num ? `${num[0]}. ` : "";
+          } else if (normalizedLabel.startsWith("chorus") || normalizedLabel.startsWith("cor")) {
+            marker = "C /: ";
           } else if (normalizedLabel.startsWith("bridge") || normalizedLabel.startsWith("punte")) {
             marker = "Bridge: ";
           } else if (normalizedLabel.startsWith("intro")) {
@@ -197,25 +152,33 @@ export async function scrapeSong(url: string): Promise<ScrapedSong> {
             marker = "Outro: ";
           }
 
-          sections.push(`${marker}${text}`);
+          // Add closing :/ for refrains/choruses
+          const needsClose = marker.includes("/:");
+          sections.push(marker + sText + (needsClose ? " :/" : ""));
         }
       });
 
-      chordContent = sections.join("\n\n");
-      rawContent = chordContent;
+      text = sections.join("\n");
     } else {
-      // Fallback: plain text from resized-text div
-      let textHtml = $(".resized-text").html() || "";
-      textHtml = textHtml.replace(/<br\s*\/?>/gi, "\n");
-      textHtml = textHtml.replace(/<[^>]+>/g, "");
-      textHtml = decodeEntities(textHtml).trim();
-
-      chordContent = textHtml;
-      rawContent = textHtml;
+      // Fallback: plain text
+      let content = $(".resized-text").html() || "";
+      content = content.replace(/<br\s*\/?>/gi, "\n");
+      content = content.replace(/<[^>]+>/g, "");
+      content = decodeEntities(content).trim();
+      text = cleanLyrics(content);
     }
   }
 
-  return { title, author, album, rawContent, chordContent };
+  return { title, author, album, text };
+}
+
+function cleanLyrics(raw: string): string {
+  return raw
+    .split("\n")
+    .map((l) => l.trimEnd())
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
 function decodeEntities(text: string): string {
@@ -225,7 +188,7 @@ function decodeEntities(text: string): string {
     .replace(/&gt;/g, ">")
     .replace(/&quot;/g, '"')
     .replace(/&#039;/g, "'")
-    .replace(/&#x219;/g, "\u0219") // ș
-    .replace(/&#x21B;/g, "\u021B") // ț
+    .replace(/&#x219;/g, "\u0219")
+    .replace(/&#x21B;/g, "\u021B")
     .replace(/&nbsp;/g, " ");
 }

@@ -2,19 +2,13 @@
 
 :root {
   --background: #faf8f5;
-  --foreground: #1a1a2e;
-  --accent: #6366f1;
-  --accent-hover: #4f46e5;
-  --accent-light: #e0e7ff;
+  --foreground: #1a1a1a;
+  --accent: #2c3e50;
+  --accent-hover: #1a252f;
+  --hover-bg: #f0ece6;
   --card-bg: #ffffff;
-  --card-border: #e5e7eb;
+  --card-border: #ddd8d0;
   --muted: #6b7280;
-  --chord-color: #4f46e5;
-  --section-strofa: #3b82f6;
-  --section-ritornello: #f59e0b;
-  --section-bridge: #8b5cf6;
-  --section-intro: #10b981;
-  --section-outro: #ef4444;
   --input-bg: #ffffff;
   --input-border: #d1d5db;
 }
@@ -22,29 +16,21 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --color-accent: var(--accent);
-  --color-accent-hover: var(--accent-hover);
-  --color-accent-light: var(--accent-light);
-  --color-card: var(--card-bg);
-  --color-card-border: var(--card-border);
-  --color-muted: var(--muted);
   --font-body: var(--font-dm-sans);
   --font-title: var(--font-fraunces);
-  --font-chord: var(--font-jetbrains-mono);
 }
 
 .dark {
-  --background: #0c0c18;
-  --foreground: #e8e6e3;
-  --accent: #818cf8;
-  --accent-hover: #a5b4fc;
-  --accent-light: #1e1b4b;
-  --card-bg: #16162a;
-  --card-border: #2d2d50;
-  --muted: #9ca3af;
-  --chord-color: #a5b4fc;
-  --input-bg: #1e1e36;
-  --input-border: #3d3d60;
+  --background: #0f0f0f;
+  --foreground: #e5e2de;
+  --accent: #c9b99a;
+  --accent-hover: #ddd0b8;
+  --hover-bg: #1e1e1e;
+  --card-bg: #1a1a1a;
+  --card-border: #333;
+  --muted: #888;
+  --input-bg: #1e1e1e;
+  --input-border: #444;
 }
 
 body {
@@ -52,63 +38,223 @@ body {
   color: var(--foreground);
   font-family: var(--font-body), "DM Sans", system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
 }
 
-/* Song chord-above-text layout */
-.chord-line-pair {
-  position: relative;
-  margin-bottom: 0.15em;
+/* ─── Utility classes ─── */
+.muted { color: var(--muted); }
+.accent-text { color: var(--accent); }
+.title-font { font-family: var(--font-title), var(--font-fraunces), serif; }
+
+/* ─── Buttons ─── */
+.btn-primary {
+  background: var(--accent);
+  color: var(--background);
+  border-color: var(--accent);
+  transition: all 0.15s ease;
+}
+.btn-primary:hover { background: var(--accent-hover); }
+
+/* ─── Input ─── */
+.input-field {
+  background: var(--input-bg);
+  border-color: var(--input-border);
+  color: var(--foreground);
+  transition: border-color 0.15s;
+}
+.input-field:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 20%, transparent);
 }
 
-.chord-row {
-  color: var(--chord-color);
-  font-weight: 700;
-  font-family: var(--font-chord), "JetBrains Mono", monospace;
-  font-size: 0.9em;
-  white-space: pre;
-  line-height: 1.3;
-  min-height: 1.3em;
-  user-select: none;
+/* ─── Card ─── */
+.card {
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
 }
 
-.lyric-row {
-  white-space: pre-wrap;
-  font-family: var(--font-chord), "JetBrains Mono", monospace;
-  line-height: 1.4;
+/* ─── Tags ─── */
+.tag-chord {
+  background: #e8f5e9;
+  color: #2e7d32;
+}
+.dark .tag-chord {
+  background: rgba(46, 125, 50, 0.15);
+  color: #81c784;
+}
+.tag-lyrics {
+  background: #e3f2fd;
+  color: #1565c0;
+}
+.dark .tag-lyrics {
+  background: rgba(21, 101, 192, 0.15);
+  color: #64b5f6;
 }
 
-/* Lyrics-only line (no chords) */
-.lyric-only {
-  white-space: pre-wrap;
-  font-family: var(--font-chord), "JetBrains Mono", monospace;
-  line-height: 1.6;
+/* ─── Header ─── */
+.header-bar {
+  background: color-mix(in srgb, var(--background) 90%, transparent);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--card-border);
 }
 
-/* Empty line spacer */
-.song-empty-line {
-  height: 0.8em;
+/* ─── Toast ─── */
+.toast-msg {
+  padding: 0.6rem 1.2rem;
+  border-radius: 0.75rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  background: var(--accent);
+  color: var(--background);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
 }
 
-/* Song text pre formatting */
-.song-text {
-  font-family: var(--font-chord), "JetBrains Mono", monospace;
-  font-size: 0.95rem;
+/* ─── Spinner ─── */
+.spinner {
+  width: 2rem;
+  height: 2rem;
+  border: 2px solid var(--card-border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
 }
-
-/* Section badge base */
-.section-badge {
+.spinner-sm {
   display: inline-block;
-  padding: 0.15rem 0.65rem;
-  border-radius: 9999px;
-  font-size: 0.75rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: white;
+  width: 1rem;
+  height: 1rem;
+  border: 2px solid rgba(255,255,255,0.3);
+  border-top-color: white;
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ─── Song list (like a PDF index) ─── */
+.song-list {
+  display: flex;
+  flex-direction: column;
 }
 
-/* Fullscreen mode */
+.song-list-item {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  padding: 0.65rem 0.5rem;
+  border-bottom: 1px solid var(--card-border);
+  text-align: left;
+  transition: background 0.1s;
+  cursor: pointer;
+  width: 100%;
+}
+.song-list-item:hover {
+  background: var(--hover-bg);
+}
+.song-list-item.selected {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.song-list-num {
+  flex-shrink: 0;
+  width: 2rem;
+  text-align: right;
+  font-size: 0.8rem;
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.song-list-title {
+  flex: 1;
+  font-weight: 600;
+  font-size: 0.95rem;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.song-list-author {
+  flex-shrink: 0;
+  font-size: 0.75rem;
+  color: var(--muted);
+  max-width: 10rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.song-list-key {
+  flex-shrink: 0;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--accent);
+  width: 3rem;
+  text-align: center;
+}
+
+.song-list-check {
+  flex-shrink: 0;
+  width: 1.25rem;
+  height: 1.25rem;
+  border: 2px solid var(--card-border);
+  border-radius: 0.25rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.7rem;
+  font-weight: bold;
+  transition: all 0.15s;
+}
+.song-list-check.checked {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--background);
+}
+
+/* ─── Song view (like a PDF page) ─── */
+.song-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 1rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 2px solid var(--foreground);
+  margin-bottom: 1.5rem;
+}
+
+.song-view-title {
+  font-size: 1.5rem;
+  font-weight: 800;
+  line-height: 1.2;
+  font-family: var(--font-title), serif;
+}
+
+.song-view-author {
+  font-size: 0.85rem;
+  color: var(--muted);
+  margin-top: 0.25rem;
+}
+
+.song-view-key {
+  flex-shrink: 0;
+  font-size: 1.1rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.song-text {
+  font-family: var(--font-body), system-ui, sans-serif;
+  font-size: 1rem;
+  line-height: 1.7;
+}
+
+.song-line {
+  white-space: pre-wrap;
+}
+
+.song-empty-line {
+  height: 0.85em;
+}
+
+/* ─── Fullscreen ─── */
 .fullscreen-mode {
   position: fixed;
   inset: 0;
@@ -117,72 +263,19 @@ body {
   background: var(--background);
 }
 
-/* Smooth transitions for theme switch */
-body,
-.card-transition {
-  transition: background-color 0.2s ease, color 0.2s ease,
-    border-color 0.2s ease;
-}
+/* ─── Font size modes ─── */
+.font-large .song-text { font-size: 1.3rem; }
+.font-xlarge .song-text { font-size: 1.6rem; }
+.font-large .song-view-title { font-size: 1.8rem; }
+.font-xlarge .song-view-title { font-size: 2.2rem; }
 
-/* iPad optimizations */
+/* ─── iPad / tablet ─── */
 @media (min-width: 768px) {
-  .song-text {
-    font-size: 1.1rem;
-  }
+  .song-text { font-size: 1.15rem; }
+  .song-view-title { font-size: 1.75rem; }
 }
 
-@media (min-width: 1024px) {
-  .song-text {
-    font-size: 1.25rem;
-  }
-}
-
-/* Large font mode */
-.font-large .song-text {
-  font-size: 1.35rem;
-}
-
-.font-xlarge .song-text {
-  font-size: 1.6rem;
-}
-
-/* Print styles */
-@media print {
-  body {
-    background: white !important;
-    color: black !important;
-  }
-  .no-print {
-    display: none !important;
-  }
-}
-
-/* Custom scrollbar */
-::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
-::-webkit-scrollbar-track {
-  background: transparent;
-}
-::-webkit-scrollbar-thumb {
-  background: var(--accent-light);
-  border-radius: 3px;
-}
-::-webkit-scrollbar-thumb:hover {
-  background: var(--accent);
-}
-
-/* Input & textarea styling */
-input,
-textarea,
-select {
-  background: var(--input-bg);
-  border-color: var(--input-border);
-  color: var(--foreground);
-}
-
-/* Alphabet nav */
+/* ─── Alpha nav ─── */
 .alpha-nav a {
   display: inline-flex;
   align-items: center;
@@ -194,25 +287,37 @@ select {
   font-size: 0.8rem;
   transition: all 0.15s ease;
 }
-
 .alpha-nav a:hover,
 .alpha-nav a.active {
   background: var(--accent);
-  color: white;
+  color: var(--background);
 }
 
-/* Fade-in animation */
+/* ─── Print ─── */
+@media print {
+  body { background: white !important; color: black !important; }
+  .no-print { display: none !important; }
+}
+
+/* ─── Transitions ─── */
+body { transition: background-color 0.2s ease, color 0.2s ease; }
+
+/* ─── Scrollbar ─── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--card-border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--accent); }
+
+/* ─── Inputs global ─── */
+input, textarea, select {
+  background: var(--input-bg);
+  border-color: var(--input-border);
+  color: var(--foreground);
+}
+
+/* ─── Fade in ─── */
 @keyframes fadeIn {
-  from {
-    opacity: 0;
-    transform: translateY(8px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
 }
-
-.animate-fade-in {
-  animation: fadeIn 0.25s ease-out;
-}
+.animate-fade-in { animation: fadeIn 0.2s ease-out; }

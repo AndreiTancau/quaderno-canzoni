@@ -22,7 +22,7 @@ const jetbrainsMono = JetBrains_Mono({
 
 export const metadata: Metadata = {
   title: "Quaderno Canzoni",
-  description: "Il tuo quaderno di canzoni online con accordi e tonalita",
+  description: "Il tuo quaderno di canzoni online",
   manifest: "/manifest.json",
   appleWebApp: {
     capable: true,
@@ -35,7 +35,7 @@ export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   maximumScale: 5,
-  themeColor: "#6366f1",
+  themeColor: "#2c3e50",
 };
 
 export default function RootLayout({
