@@ -24,6 +24,111 @@ function generateId(): string {
     : Math.random().toString(36).slice(2);
 }
 
+interface ParsedSection {
+  label: string;       // e.g. "STROFA 1", "RITORNELLO", "BRIDGE", ""
+  type: "strofa" | "ritornello" | "bridge" | "intro" | "outro" | "chorus" | "other";
+  lines: string[];
+}
+
+/**
+ * Parse song text into labeled sections.
+ * Detects patterns like "1. ", "R /: ", "C /: ", "Bridge: ", "Intro: ", "Outro: "
+ * Sections are separated by blank lines.
+ */
+function parseSections(text: string): ParsedSection[] {
+  if (!text.trim()) return [];
+
+  // Split into blocks by blank lines
+  const blocks = text.split(/\n\s*\n/).filter((b) => b.trim());
+  const sections: ParsedSection[] = [];
+
+  for (const block of blocks) {
+    const trimmed = block.trim();
+    const firstLine = trimmed.split("\n")[0].trim();
+
+    let label = "";
+    let type: ParsedSection["type"] = "other";
+    let content = trimmed;
+
+    // Check for numbered stanza: starts with "1. ", "2. ", etc.
+    const stanzaMatch = firstLine.match(/^(\d+)\.\s/);
+    if (stanzaMatch) {
+      label = `STROFA ${stanzaMatch[1]}`;
+      type = "strofa";
+      // Remove the number prefix from the first line
+      content = trimmed.replace(/^\d+\.\s*/, "");
+    }
+    // Check for refrain: "R /:" or "R:" at the start
+    else if (/^R\s*\/?:/.test(firstLine)) {
+      label = "RITORNELLO";
+      type = "ritornello";
+      content = trimmed.replace(/^R\s*\/?:\s*/, "").replace(/\s*:\/$/, "");
+    }
+    // Check for chorus: "C /:" at the start
+    else if (/^C\s*\/?:/.test(firstLine)) {
+      label = "CORO";
+      type = "chorus";
+      content = trimmed.replace(/^C\s*\/?:\s*/, "").replace(/\s*:\/$/, "");
+    }
+    // Check for bridge
+    else if (/^bridge\s*:/i.test(firstLine)) {
+      label = "BRIDGE";
+      type = "bridge";
+      content = trimmed.replace(/^bridge\s*:\s*/i, "");
+    }
+    // Check for intro
+    else if (/^intro\s*:/i.test(firstLine)) {
+      label = "INTRO";
+      type = "intro";
+      content = trimmed.replace(/^intro\s*:\s*/i, "");
+    }
+    // Check for outro
+    else if (/^outro\s*:/i.test(firstLine)) {
+      label = "OUTRO";
+      type = "outro";
+      content = trimmed.replace(/^outro\s*:\s*/i, "");
+    }
+
+    sections.push({
+      label,
+      type,
+      lines: content.split("\n").map((l) => l.trimEnd()),
+    });
+  }
+
+  return sections;
+}
+
+/** Render parsed sections as React elements */
+function SongSections({ text }: { text: string }) {
+  const sections = parseSections(text);
+
+  if (sections.length === 0) {
+    return <p className="muted">Nessun testo</p>;
+  }
+
+  return (
+    <>
+      {sections.map((section, si) => (
+        <div key={si} className="song-section">
+          {section.label && (
+            <div className={cn("song-section-label", `section-${section.type}`)}>
+              {section.label}
+            </div>
+          )}
+          <div className="song-section-text">
+            {section.lines.map((line, li) => (
+              <div key={li} className={line.trim() === "" ? "song-empty-line" : "song-line"}>
+                {line}
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+    </>
+  );
+}
+
 // ─── Main Component ────────────────────────────────────────
 
 export default function Home() {
@@ -606,17 +711,9 @@ export default function Home() {
                 )}
               </div>
 
-              {/* Song text - plain lyrics like the PDF */}
+              {/* Song text - with section labels */}
               <div className="song-text">
-                {selectedSong.text ? (
-                  selectedSong.text.split("\n").map((line, i) => (
-                    <div key={i} className={line.trim() === "" ? "song-empty-line" : "song-line"}>
-                      {line}
-                    </div>
-                  ))
-                ) : (
-                  <p className="muted">Nessun testo</p>
-                )}
+                <SongSections text={selectedSong.text} />
               </div>
 
               {selectedSong.source_url && (
@@ -783,11 +880,7 @@ export default function Home() {
                           {importKey && <span className="song-view-key">{importKey}</span>}
                         </div>
                         <div className="song-text text-sm">
-                          {importText.split("\n").map((line, i) => (
-                            <div key={i} className={line.trim() === "" ? "song-empty-line" : "song-line"}>
-                              {line}
-                            </div>
-                          ))}
+                          <SongSections text={importText} />
                         </div>
                       </div>
                     </div>

@@ -254,6 +254,67 @@ body {
   height: 0.85em;
 }
 
+/* ─── Song sections ─── */
+.song-section {
+  margin-bottom: 1.5rem;
+}
+.song-section:last-child {
+  margin-bottom: 0;
+}
+
+.song-section-label {
+  display: inline-block;
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  padding: 0.2rem 0.6rem;
+  border-radius: 0.25rem;
+  margin-bottom: 0.5rem;
+  background: var(--hover-bg);
+  color: var(--muted);
+}
+
+.song-section-label.section-strofa {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  color: var(--accent);
+}
+
+.song-section-label.section-ritornello,
+.song-section-label.section-chorus {
+  background: #fef3c7;
+  color: #92400e;
+}
+.dark .song-section-label.section-ritornello,
+.dark .song-section-label.section-chorus {
+  background: rgba(146, 64, 14, 0.15);
+  color: #fbbf24;
+}
+
+.song-section-label.section-bridge {
+  background: #ede9fe;
+  color: #6d28d9;
+}
+.dark .song-section-label.section-bridge {
+  background: rgba(109, 40, 217, 0.15);
+  color: #a78bfa;
+}
+
+.song-section-label.section-intro,
+.song-section-label.section-outro {
+  background: #e0f2fe;
+  color: #0369a1;
+}
+.dark .song-section-label.section-intro,
+.dark .song-section-label.section-outro {
+  background: rgba(3, 105, 161, 0.15);
+  color: #38bdf8;
+}
+
+.song-section-text {
+  padding-left: 0.25rem;
+}
+
 /* ─── Fullscreen ─── */
 .fullscreen-mode {
   position: fixed;
