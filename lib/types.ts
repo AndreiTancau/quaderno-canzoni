@@ -24,6 +24,7 @@ export interface Song {
   key: string | null;
   text: string;
   source_url: string | null;
+  audio_url: string | null;
   created_at: string;
   updated_at: string;
   owner: string;

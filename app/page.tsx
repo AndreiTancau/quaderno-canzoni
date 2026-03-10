@@ -11,6 +11,7 @@ import type {
 } from "@/lib/types";
 import { USERS, ALL_KEYS } from "@/lib/types";
 import { getSupabase } from "@/lib/supabase";
+import { uploadAudio, deleteAudio } from "@/lib/audio-storage";
 
 // ─── Helpers ───────────────────────────────────────────────
 
@@ -232,6 +233,15 @@ export default function Home() {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [liveSetIds, setLiveSetIds] = useState<string[]>([]);
 
+  // Audio recording
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordingTime, setRecordingTime] = useState(0);
+  const [audioUploading, setAudioUploading] = useState(false);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const audioPlayerRef = useRef<HTMLAudioElement | null>(null);
+
   // Import
   const [importUrl, setImportUrl] = useState("");
   const [importLoading, setImportLoading] = useState(false);
@@ -374,6 +384,16 @@ export default function Home() {
 
   useEffect(() => { loadSongs(); }, [loadSongs]);
 
+  // Keep selectedSong in sync when songs array updates (e.g. after audio upload)
+  useEffect(() => {
+    if (selectedSong) {
+      const fresh = songs.find((s) => s.id === selectedSong.id);
+      if (fresh && fresh.updated_at !== selectedSong.updated_at) {
+        setSelectedSong(fresh);
+      }
+    }
+  }, [songs, selectedSong]);
+
   // ─── Save song ───
   const saveSong = useCallback(
     async (title: string, author: string, key: string | null, text: string, sourceUrl: string | null) => {
@@ -383,6 +403,7 @@ export default function Home() {
           id: generateId(),
           title, author, key, text,
           source_url: sourceUrl,
+          audio_url: null,
           owner: selectedUser.name,
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
@@ -439,6 +460,93 @@ export default function Home() {
     },
     [songs, loadSongs]
   );
+
+  // ─── Audio recording ───
+  const startRecording = useCallback(async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
+        ? "audio/webm;codecs=opus"
+        : MediaRecorder.isTypeSupported("audio/mp4")
+          ? "audio/mp4"
+          : "audio/ogg";
+      const recorder = new MediaRecorder(stream, { mimeType });
+      audioChunksRef.current = [];
+
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) audioChunksRef.current.push(e.data);
+      };
+
+      recorder.onstop = () => {
+        stream.getTracks().forEach((t) => t.stop());
+      };
+
+      recorder.start(1000);
+      mediaRecorderRef.current = recorder;
+      setIsRecording(true);
+      setRecordingTime(0);
+      recordingTimerRef.current = setInterval(() => {
+        setRecordingTime((t) => t + 1);
+      }, 1000);
+    } catch (err) {
+      console.error("Microphone access error:", err);
+      showToast("Errore: accesso al microfono negato");
+    }
+  }, [showToast]);
+
+  const stopAndUploadRecording = useCallback(async (songId: string) => {
+    if (!mediaRecorderRef.current) return;
+
+    return new Promise<void>((resolve) => {
+      const recorder = mediaRecorderRef.current!;
+      recorder.onstop = async () => {
+        recorder.stream.getTracks().forEach((t) => t.stop());
+        if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
+        setIsRecording(false);
+        setRecordingTime(0);
+
+        const blob = new Blob(audioChunksRef.current, { type: recorder.mimeType });
+        if (blob.size === 0) {
+          showToast("Registrazione vuota");
+          resolve();
+          return;
+        }
+
+        setAudioUploading(true);
+        try {
+          await uploadAudio(songId, blob);
+          await loadSongs();
+          showToast("Audio salvato");
+        } catch (err) {
+          console.error("Upload error:", err);
+          showToast("Errore nel salvataggio audio");
+        }
+        setAudioUploading(false);
+        resolve();
+      };
+      recorder.stop();
+    });
+  }, [showToast, loadSongs]);
+
+  const handleDeleteAudio = useCallback(async (song: Song) => {
+    if (!song.audio_url) return;
+    if (!confirm("Eliminare la registrazione audio?")) return;
+
+    try {
+      await deleteAudio(song.id, song.audio_url);
+      await loadSongs();
+      showToast("Audio eliminato");
+    } catch (err) {
+      console.error("Delete audio error:", err);
+      showToast("Errore nell'eliminazione audio");
+    }
+  }, [showToast, loadSongs]);
+
+  const formatRecordingTime = (seconds: number) => {
+    const m = Math.floor(seconds / 60).toString().padStart(2, "0");
+    const s = (seconds % 60).toString().padStart(2, "0");
+    return `${m}:${s}`;
+  };
 
   // ─── Search on resursecrestine.ro ───
   const handleSearch = useCallback(async () => {
@@ -843,20 +951,11 @@ export default function Home() {
                   {darkMode ? "\u2600\uFE0F" : "\uD83C\uDF19"}
                 </button>
 
-                <div className="flex gap-1">
-                  {USERS.map((u) => (
-                    <button
-                      key={u.name}
-                      onClick={() => setSelectedUser(u)}
-                      className={cn(
-                        "px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-all",
-                        selectedUser.name === u.name ? "btn-primary" : "hover:bg-[var(--hover-bg)]"
-                      )}
-                    >
-                      {u.name}
-                    </button>
-                  ))}
-                </div>
+                {isAdmin && (
+                  <span className="px-2.5 py-1.5 rounded-lg text-xs font-semibold btn-primary">
+                    Admin
+                  </span>
+                )}
               </div>
             </div>
           </header>
@@ -1102,6 +1201,63 @@ export default function Home() {
                       </button>
                     )}
                   </div>
+
+                  {/* Audio player / recorder */}
+                  {(selectedSong.audio_url || isAdmin) && (
+                    <div className="audio-bar card">
+                      {selectedSong.audio_url && !isRecording && (
+                        <div className="audio-player-row">
+                          <audio
+                            ref={audioPlayerRef}
+                            src={selectedSong.audio_url}
+                            controls
+                            preload="metadata"
+                            className="audio-player"
+                          />
+                          {isAdmin && (
+                            <button
+                              onClick={() => handleDeleteAudio(selectedSong)}
+                              className="song-tool-btn audio-delete-btn"
+                              title="Elimina audio"
+                            >
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                <polyline points="3 6 5 6 21 6" /><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" /><path d="M10 11v6" /><path d="M14 11v6" />
+                              </svg>
+                            </button>
+                          )}
+                        </div>
+                      )}
+
+                      {isAdmin && !isRecording && !audioUploading && (
+                        <button
+                          onClick={startRecording}
+                          className="song-tool-btn audio-record-btn"
+                        >
+                          <span className="audio-record-dot" />
+                          {selectedSong.audio_url ? "Registra di nuovo" : "Registra audio"}
+                        </button>
+                      )}
+
+                      {isRecording && (
+                        <div className="audio-recording-row">
+                          <span className="audio-recording-indicator" />
+                          <span className="audio-recording-time">{formatRecordingTime(recordingTime)}</span>
+                          <button
+                            onClick={() => stopAndUploadRecording(selectedSong.id)}
+                            className="song-tool-btn btn-primary"
+                          >
+                            Ferma e Salva
+                          </button>
+                        </div>
+                      )}
+
+                      {audioUploading && (
+                        <div className="audio-uploading-row">
+                          <span className="text-sm text-[var(--muted)]">Caricamento audio...</span>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </>
               )}
 

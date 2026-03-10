@@ -11,6 +11,7 @@ CREATE TABLE songs (
   key TEXT,
   text TEXT NOT NULL DEFAULT '',
   source_url TEXT,
+  audio_url TEXT,
   owner TEXT NOT NULL DEFAULT 'Andrei',
   created_at TIMESTAMPTZ DEFAULT now(),
   updated_at TIMESTAMPTZ DEFAULT now()
@@ -44,3 +45,16 @@ CREATE POLICY "songs_select" ON songs FOR SELECT USING (true);
 CREATE POLICY "songs_insert" ON songs FOR INSERT WITH CHECK (true);
 CREATE POLICY "songs_update" ON songs FOR UPDATE USING (true);
 CREATE POLICY "songs_delete" ON songs FOR DELETE USING (true);
+
+-- =============================================
+-- Storage bucket per file audio
+-- =============================================
+-- Eseguire nella console Supabase o via API:
+-- INSERT INTO storage.buckets (id, name, public) VALUES ('audio', 'audio', true);
+-- CREATE POLICY "audio_select"  ON storage.objects FOR SELECT USING (bucket_id = 'audio');
+-- CREATE POLICY "audio_insert"  ON storage.objects FOR INSERT WITH CHECK (bucket_id = 'audio');
+-- CREATE POLICY "audio_update"  ON storage.objects FOR UPDATE USING (bucket_id = 'audio');
+-- CREATE POLICY "audio_delete"  ON storage.objects FOR DELETE USING (bucket_id = 'audio');
+
+-- Migrazione per database esistente:
+-- ALTER TABLE songs ADD COLUMN audio_url TEXT;

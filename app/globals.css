@@ -276,7 +276,7 @@ body {
 
 .song-text {
   font-family: var(--font-body), system-ui, sans-serif;
-  font-size: 17px;
+  font-size: 20px;
   line-height: 1.75;
   letter-spacing: -0.003em;
   max-width: 70ch;
@@ -300,13 +300,13 @@ body {
 
 .song-section-label {
   display: inline-block;
-  font-size: 11px;
-  font-weight: 700;
+  font-size: 9px;
+  font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
-  padding: 4px 10px;
-  border-radius: 6px;
-  margin-bottom: 8px;
+  letter-spacing: 0.08em;
+  padding: 3px 8px;
+  border-radius: 5px;
+  margin-bottom: 6px;
   background: var(--secondary);
   color: var(--muted);
 }
@@ -418,16 +418,17 @@ body {
 
 .song-tool-btn {
   border-radius: 8px;
-  border: 1px solid var(--card-border);
+  border: 1px solid var(--input-border);
   padding: 6px 12px;
   font-size: 13px;
   font-weight: 600;
   transition: all 0.15s ease;
-  background: transparent;
+  background: var(--secondary);
+  color: var(--foreground);
 }
 
 .song-tool-btn:hover {
-  background: var(--hover-bg);
+  background: color-mix(in srgb, var(--secondary) 70%, var(--foreground) 8%);
 }
 .song-tool-btn:disabled {
   opacity: 0.35;
@@ -463,6 +464,95 @@ body {
   font-weight: 600;
   color: var(--muted);
   font-variant-numeric: tabular-nums;
+}
+
+/* ─── Audio bar ─── */
+.audio-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border-radius: 14px;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+  background: color-mix(in srgb, var(--card-bg) 85%, transparent);
+  backdrop-filter: blur(20px) saturate(1.8);
+  -webkit-backdrop-filter: blur(20px) saturate(1.8);
+  border: 1px solid var(--card-border);
+}
+
+.audio-player-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.audio-player {
+  flex: 1;
+  height: 36px;
+  border-radius: 8px;
+}
+
+.audio-player::-webkit-media-controls-panel {
+  background: var(--secondary);
+}
+
+.audio-delete-btn {
+  flex-shrink: 0;
+  color: var(--destructive) !important;
+  border-color: color-mix(in srgb, var(--destructive) 30%, transparent) !important;
+  padding: 6px 8px;
+}
+.audio-delete-btn:hover {
+  background: color-mix(in srgb, var(--destructive) 10%, transparent) !important;
+}
+
+.audio-record-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  align-self: flex-start;
+}
+
+.audio-record-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--destructive);
+  flex-shrink: 0;
+}
+
+.audio-recording-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.audio-recording-indicator {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--destructive);
+  animation: audio-pulse 1s ease-in-out infinite;
+}
+
+@keyframes audio-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+.audio-recording-time {
+  font-size: 14px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--foreground);
+  min-width: 3.5rem;
+}
+
+.audio-uploading-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
 }
 
 .song-content {
@@ -631,14 +721,14 @@ body {
 }
 
 /* ─── Font size modes ─── */
-.font-large .song-text { font-size: 20px; }
-.font-xlarge .song-text { font-size: 24px; }
-.font-large .song-view-title { font-size: 28px; }
-.font-xlarge .song-view-title { font-size: 34px; }
+.font-large .song-text { font-size: 24px; }
+.font-xlarge .song-text { font-size: 28px; }
+.font-large .song-view-title { font-size: 30px; }
+.font-xlarge .song-view-title { font-size: 36px; }
 
 /* ─── Tablet ─── */
 @media (min-width: 768px) {
-  .song-text { font-size: 18px; }
+  .song-text { font-size: 21px; }
   .song-view-title { font-size: 30px; }
   .song-hero { padding: 24px; }
   .song-content { padding: 28px; }
