@@ -1143,8 +1143,8 @@ export default function Home() {
                       </svg>
                     </button>
 
-                    {/* Center: live set navigation */}
-                    {hasLiveSet && (
+                    {/* Center: live set navigation (takes flex:1 to center) */}
+                    {hasLiveSet ? (
                       <div className="song-nav-group">
                         <button
                           onClick={() => navigateLive("prev")}
@@ -1183,11 +1183,13 @@ export default function Home() {
                           </svg>
                         </button>
                       </div>
+                    ) : (
+                      <div className="flex-1" />
                     )}
 
                     {/* Right: edit */}
                     {isAdmin && (
-                      <button onClick={() => startEdit(selectedSong)} className="ml-auto song-tool-btn btn-primary">
+                      <button onClick={() => startEdit(selectedSong)} className="song-tool-btn btn-primary">
                         Modifica
                       </button>
                     )}
