@@ -716,7 +716,7 @@ export default function Home() {
       setPdfModalOpen(false);
       try {
         showToast("Generazione PDF...");
-        const selectedSongs = songs.filter((s) => ids.includes(s.id));
+        const selectedSongs = ids.map((id) => songs.find((s) => s.id === id)).filter((s): s is Song => !!s);
         const res = await fetch("/api/pdf", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -1048,15 +1048,24 @@ export default function Home() {
                     <div className="flex gap-2 items-center">
                       <span className="text-xs font-medium">{selectedIds.size} selezionate</span>
                       <button
-                        onClick={() => openLiveSet(Array.from(selectedIds))}
+                        onClick={() => {
+                          const ordered = filteredSongs.filter((s) => selectedIds.has(s.id)).map((s) => s.id);
+                          openLiveSet(ordered);
+                        }}
                         className="px-3 py-1.5 rounded-lg text-xs font-semibold border hover:bg-[var(--hover-bg)]"
                       >
                         Apri Live ({selectedIds.size})
                       </button>
-                      <button onClick={() => handleExportPdf(Array.from(selectedIds))} className="px-3 py-1.5 rounded-lg text-xs font-semibold btn-primary">
+                      <button
+                        onClick={() => {
+                          const ordered = filteredSongs.filter((s) => selectedIds.has(s.id)).map((s) => s.id);
+                          handleExportPdf(ordered);
+                        }}
+                        className="px-3 py-1.5 rounded-lg text-xs font-semibold btn-primary"
+                      >
                         Esporta PDF ({selectedIds.size})
                       </button>
-                      <button onClick={() => handleExportPdf(songs.map((s) => s.id))} className="px-3 py-1.5 rounded-lg border text-xs font-semibold hover:bg-[var(--hover-bg)]">
+                      <button onClick={() => handleExportPdf(filteredSongs.map((s) => s.id))} className="px-3 py-1.5 rounded-lg border text-xs font-semibold hover:bg-[var(--hover-bg)]">
                         Esporta Tutte
                       </button>
                     </div>
@@ -1120,8 +1129,8 @@ export default function Home() {
                   >
                     Avvia Set Live ({filteredSongs.length})
                   </button>
-                  <button onClick={() => handleExportPdf(songs.map((s) => s.id))} className="px-6 py-2.5 rounded-xl border text-sm font-semibold hover:bg-[var(--hover-bg)] transition-colors">
-                    Esporta tutto come PDF ({songs.length} canzoni)
+                  <button onClick={() => handleExportPdf(filteredSongs.map((s) => s.id))} className="px-6 py-2.5 rounded-xl border text-sm font-semibold hover:bg-[var(--hover-bg)] transition-colors">
+                    Esporta tutto come PDF ({filteredSongs.length} canzoni)
                   </button>
                 </div>
               )}
