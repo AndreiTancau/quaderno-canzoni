@@ -348,8 +348,11 @@ export default function Home() {
   const [pdfTitle, setPdfTitle] = useState("Quaderno Canzoni");
   const [pdfPendingIds, setPdfPendingIds] = useState<string[]>([]);
   const [pdfOptions, setPdfOptions] = useState<PdfExportOptions>(DEFAULT_PDF_OPTIONS);
+  const [pdfPreviewUrl, setPdfPreviewUrl] = useState<string | null>(null);
+  const [pdfPreviewLoading, setPdfPreviewLoading] = useState(false);
   const toastRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const swipeStartRef = useRef<{ x: number; y: number } | null>(null);
+  const pdfPreviewUrlRef = useRef<string | null>(null);
 
   const isAdmin = selectedUser.role === "admin";
 
@@ -921,6 +924,57 @@ export default function Home() {
       return next;
     });
   }, []);
+
+  useEffect(() => {
+    if (!pdfModalOpen || pdfPreviewSongs.length === 0) return;
+
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(async () => {
+      setPdfPreviewLoading(true);
+      try {
+        const res = await fetch("/api/pdf", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            songs: pdfPreviewSongs,
+            title: pdfTitle.trim() || "Quaderno Canzoni",
+            options: pdfOptions,
+          }),
+          signal: controller.signal,
+        });
+
+        if (!res.ok) throw new Error("PDF preview failed");
+        const blob = await res.blob();
+        const nextUrl = URL.createObjectURL(blob);
+
+        if (pdfPreviewUrlRef.current) URL.revokeObjectURL(pdfPreviewUrlRef.current);
+        pdfPreviewUrlRef.current = nextUrl;
+        setPdfPreviewUrl(nextUrl);
+      } catch (error) {
+        if ((error as Error).name !== "AbortError") {
+          console.error("PDF preview error:", error);
+          setPdfPreviewUrl(null);
+        }
+      } finally {
+        if (!controller.signal.aborted) setPdfPreviewLoading(false);
+      }
+    }, 350);
+
+    return () => {
+      controller.abort();
+      window.clearTimeout(timeoutId);
+    };
+  }, [pdfModalOpen, pdfPreviewSongs, pdfTitle, pdfOptions]);
+
+  useEffect(() => {
+    if (pdfModalOpen) return;
+    if (pdfPreviewUrlRef.current) {
+      URL.revokeObjectURL(pdfPreviewUrlRef.current);
+      pdfPreviewUrlRef.current = null;
+    }
+    setPdfPreviewUrl(null);
+    setPdfPreviewLoading(false);
+  }, [pdfModalOpen]);
 
   const songById = useMemo(() => new Map(songs.map((s) => [s.id, s])), [songs]);
 
@@ -1949,72 +2003,61 @@ export default function Home() {
                     </div>
                   </aside>
 
-                  <section className="p-4 sm:p-6 lg:p-8">
-                    <div className="mx-auto max-w-2xl rounded-sm bg-white px-8 py-10 shadow-[0_18px_60px_rgba(30,24,12,0.18)] ring-1 ring-black/5 sm:px-12">
-                      <div className="mb-8 text-center">
-                        <p className="text-[10px] font-bold uppercase tracking-[0.28em] text-[#9a7d4f]">Preview PDF</p>
-                        <h4
-                          className="mt-2 font-bold text-[#1a2e6e]"
-                          style={{
-                            fontFamily: pdfOptions.fontFamily === "serif" ? "Georgia, serif" : "ui-sans-serif, system-ui",
-                            fontSize: `${pdfOptions.titleSize + 6}px`,
-                          }}
-                        >
-                          {pdfTitle || "Quaderno Canzoni"}
-                        </h4>
-                        <p className="mt-2 text-xs muted">{pdfPreviewSongs.length} canzoni</p>
+                  <section className="grid min-h-[640px] grid-rows-[auto_minmax(0,1fr)] gap-4 p-4 sm:p-6 lg:p-8">
+                    <div className="flex flex-col gap-3 rounded-2xl border border-black/10 bg-white/65 p-3 sm:flex-row sm:items-center sm:justify-between">
+                      <div>
+                        <p className="text-[10px] font-bold uppercase tracking-[0.24em] text-[#9a7d4f]">PDF reale</p>
+                        <p className="text-sm font-semibold text-black/75">L’anteprima si rigenera quando cambi ordine, font o dimensioni.</p>
                       </div>
-
-                      <div className="space-y-3">
+                      <div className="flex max-h-32 flex-wrap gap-1 overflow-y-auto sm:max-w-sm">
                         {pdfPreviewSongs.map((song, idx) => (
-                          <div key={song.id} className="group grid grid-cols-[36px_minmax(0,1fr)_auto] items-center gap-3 rounded-xl border border-black/10 bg-[#fbfaf7] px-3 py-2.5">
-                            <span className="text-right text-xs font-bold text-[#9a7d4f]">{idx + 1}.</span>
-                            <div className="min-w-0">
-                              <p
-                                className="truncate font-bold text-[#1a2e6e]"
-                                style={{
-                                  fontFamily: pdfOptions.fontFamily === "serif" ? "Georgia, serif" : "ui-sans-serif, system-ui",
-                                  fontSize: `${Math.max(12, pdfOptions.titleSize - 2)}px`,
-                                }}
-                              >
-                                {song.title}
-                              </p>
-                              <p
-                                className="truncate text-black/75"
-                                style={{ fontSize: `${pdfOptions.bodySize}px` }}
-                              >
-                                {song.author || "Senza autore"}{song.key ? ` · ${song.key}` : ""}
-                              </p>
-                            </div>
-                            <div className="flex gap-1 opacity-100 sm:opacity-0 sm:transition-opacity sm:group-hover:opacity-100">
-                              <button
-                                type="button"
-                                onClick={() => movePdfPreviewSong(song.id, "up")}
-                                disabled={idx === 0}
-                                className="h-8 w-8 rounded-lg border bg-white text-sm font-bold disabled:opacity-35"
-                                title="Sposta su"
-                              >
-                                ↑
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => movePdfPreviewSong(song.id, "down")}
-                                disabled={idx === pdfPreviewSongs.length - 1}
-                                className="h-8 w-8 rounded-lg border bg-white text-sm font-bold disabled:opacity-35"
-                                title="Sposta giu"
-                              >
-                                ↓
-                              </button>
-                            </div>
+                          <div key={song.id} className="group flex items-center gap-1 rounded-full border bg-white px-2 py-1 text-[11px] font-semibold shadow-sm">
+                            <span className="text-[#9a7d4f]">{idx + 1}</span>
+                            <span className="max-w-28 truncate">{song.title}</span>
+                            <button
+                              type="button"
+                              onClick={() => movePdfPreviewSong(song.id, "up")}
+                              disabled={idx === 0}
+                              className="ml-1 rounded px-1 disabled:opacity-30"
+                              title="Sposta su"
+                            >
+                              ↑
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => movePdfPreviewSong(song.id, "down")}
+                              disabled={idx === pdfPreviewSongs.length - 1}
+                              className="rounded px-1 disabled:opacity-30"
+                              title="Sposta giu"
+                            >
+                              ↓
+                            </button>
                           </div>
                         ))}
                       </div>
+                    </div>
 
-                      <div className="mt-8 rounded-xl border border-dashed border-black/20 bg-[#faf7ef] p-4">
-                        <p className="font-bold text-[#1a2e6e]" style={{ fontSize: `${pdfOptions.refrainSize}px` }}>R /: Anteprima ritornello :/</p>
-                        <p className="mt-1 text-black/75" style={{ fontSize: `${pdfOptions.bodySize}px` }}>La nota della sezione resta fuori dal testo e appare sul margine destro.</p>
-                        <p className="mt-2 text-right text-[#777]" style={{ fontSize: `${pdfOptions.noteSize}px` }}>(Ref x 2)</p>
-                      </div>
+                    <div className="relative overflow-hidden rounded-2xl border border-black/10 bg-[#d8d1c3] shadow-inner">
+                      {pdfPreviewLoading && (
+                        <div className="absolute inset-0 z-10 flex items-center justify-center bg-white/65 backdrop-blur-sm">
+                          <div className="flex items-center gap-3 rounded-full bg-white px-4 py-2 text-sm font-bold shadow-lg">
+                            <span className="spinner-sm" />
+                            Genero anteprima PDF...
+                          </div>
+                        </div>
+                      )}
+                      {pdfPreviewUrl ? (
+                        <iframe
+                          key={pdfPreviewUrl}
+                          src={`${pdfPreviewUrl}#toolbar=0&navpanes=0&view=FitH`}
+                          className="h-[68vh] min-h-[560px] w-full bg-white"
+                          title="Anteprima PDF"
+                        />
+                      ) : (
+                        <div className="flex h-[68vh] min-h-[560px] items-center justify-center bg-white text-sm font-semibold muted">
+                          Anteprima PDF non disponibile
+                        </div>
+                      )}
                     </div>
                   </section>
                 </div>
