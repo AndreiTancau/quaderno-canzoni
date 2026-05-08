@@ -44,6 +44,35 @@ function getNextSortOrder(songs: Song[]): number {
   return songs.reduce((max, song) => Math.max(max, song.sort_order ?? 0), 0) + 1;
 }
 
+function compareSongsByOrder(mode: PdfOrderMode | SortMode, a: Song, b: Song): number {
+  if (mode === "manual") return compareSongManualOrder(a, b);
+  if (mode === "title") return a.title.localeCompare(b.title, "ro");
+  if (mode === "author") return a.author.localeCompare(b.author, "ro");
+  if (mode === "key") return (a.key || "").localeCompare(b.key || "", "ro");
+  return 0;
+}
+
+type PdfOrderMode = "current" | "manual" | "title" | "author" | "key";
+type PdfFontFamily = "sans" | "serif";
+
+interface PdfExportOptions {
+  order: PdfOrderMode;
+  fontFamily: PdfFontFamily;
+  titleSize: number;
+  bodySize: number;
+  refrainSize: number;
+  noteSize: number;
+}
+
+const DEFAULT_PDF_OPTIONS: PdfExportOptions = {
+  order: "current",
+  fontFamily: "sans",
+  titleSize: 14,
+  bodySize: 10,
+  refrainSize: 10,
+  noteSize: 7,
+};
+
 interface ParsedSection {
   label: string;       // e.g. "STROFA 1", "RITORNELLO", "BRIDGE", ""
   type: "strofa" | "ritornello" | "bridge" | "intro" | "outro" | "chorus" | "other";
@@ -289,6 +318,7 @@ export default function Home() {
   const [pdfModalOpen, setPdfModalOpen] = useState(false);
   const [pdfTitle, setPdfTitle] = useState("Quaderno Canzoni");
   const [pdfPendingIds, setPdfPendingIds] = useState<string[]>([]);
+  const [pdfOptions, setPdfOptions] = useState<PdfExportOptions>(DEFAULT_PDF_OPTIONS);
   const toastRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const swipeStartRef = useRef<{ x: number; y: number } | null>(null);
 
@@ -784,6 +814,7 @@ export default function Home() {
     (ids: string[]) => {
       setPdfPendingIds(ids);
       setPdfTitle("Quaderno Canzoni");
+      setPdfOptions(DEFAULT_PDF_OPTIONS);
       setPdfModalOpen(true);
     },
     []
@@ -796,11 +827,14 @@ export default function Home() {
       setPdfModalOpen(false);
       try {
         showToast("Generazione PDF...");
-        const selectedSongs = ids.map((id) => songs.find((s) => s.id === id)).filter((s): s is Song => !!s);
+        let selectedSongs = ids.map((id) => songs.find((s) => s.id === id)).filter((s): s is Song => !!s);
+        if (pdfOptions.order !== "current") {
+          selectedSongs = [...selectedSongs].sort((a, b) => compareSongsByOrder(pdfOptions.order, a, b));
+        }
         const res = await fetch("/api/pdf", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ songs: selectedSongs, title: customTitle }),
+          body: JSON.stringify({ songs: selectedSongs, title: customTitle, options: pdfOptions }),
         });
         if (!res.ok) throw new Error("PDF generation failed");
         const blob = await res.blob();
@@ -815,7 +849,7 @@ export default function Home() {
         showToast("PDF scaricato!");
       } catch { showToast("Errore nella generazione del PDF"); }
     },
-    [songs, showToast, pdfPendingIds, pdfTitle]
+    [songs, showToast, pdfPendingIds, pdfTitle, pdfOptions]
   );
 
   const songById = useMemo(() => new Map(songs.map((s) => [s.id, s])), [songs]);
@@ -891,13 +925,7 @@ export default function Home() {
     if (filterKey) result = result.filter((s) => s.key === filterKey);
     if (activeLetter) result = result.filter((s) => s.title.toUpperCase().startsWith(activeLetter));
 
-    result.sort((a, b) => {
-      if (sortMode === "manual") return compareSongManualOrder(a, b);
-      if (sortMode === "title") return a.title.localeCompare(b.title, "ro");
-      if (sortMode === "author") return a.author.localeCompare(b.author, "ro");
-      if (sortMode === "key") return (a.key || "").localeCompare(b.key || "");
-      return 0;
-    });
+    result.sort((a, b) => compareSongsByOrder(sortMode, a, b));
     return result;
   }, [songs, query, filterKey, activeLetter, sortMode]);
 
@@ -1628,6 +1656,7 @@ export default function Home() {
                       className="w-full px-4 py-3 rounded-xl border text-sm font-mono leading-relaxed input-field resize-y"
                       placeholder="Testo della canzone..."
                     />
+                    <p className="text-[11px] muted mt-2">Note a destra nel PDF: usa <code>(Ref x 2) Testo</code>, <code>Testo (Ref x 2)</code> o <code>Testo - Ref x 2</code>.</p>
                   </div>
 
                   {/* Preview */}
@@ -1734,6 +1763,9 @@ export default function Home() {
                         className="edit-section-textarea w-full rounded-xl border px-3 py-2.5 text-sm leading-relaxed input-field resize-y"
                         placeholder="Inserisci il testo della sezione..."
                       />
+                      {idx === 0 && (
+                        <p className="text-[11px] muted mt-2">Per le note laterali nel PDF usa <code>(Ref x 2) Testo</code>, <code>Testo (Ref x 2)</code> o <code>Testo - Ref x 2</code>.</p>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -1760,7 +1792,7 @@ export default function Home() {
           {/* ════════════ PDF TITLE MODAL ════════════ */}
           {pdfModalOpen && (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 animate-fade-in" onClick={() => setPdfModalOpen(false)}>
-              <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm mx-4 p-6" onClick={(e) => e.stopPropagation()}>
+              <div className="bg-white rounded-2xl shadow-xl w-full max-w-xl mx-4 p-6 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
                 <h3 className="text-lg font-bold mb-4">Esporta PDF</h3>
                 <label className="block text-sm font-medium mb-1.5 muted">Titolo del documento</label>
                 <input
@@ -1772,6 +1804,84 @@ export default function Home() {
                   placeholder="Quaderno Canzoni"
                   autoFocus
                 />
+                <div className="grid gap-4 sm:grid-cols-2 mb-5">
+                  <div>
+                    <label className="block text-sm font-medium mb-1.5 muted">Ordine canzoni</label>
+                    <select
+                      value={pdfOptions.order}
+                      onChange={(e) => setPdfOptions((prev) => ({ ...prev, order: e.target.value as PdfOrderMode }))}
+                      className="w-full rounded-xl border px-3 py-2.5 text-sm input-field"
+                    >
+                      <option value="current">Ordine attuale</option>
+                      <option value="manual">Ordine PDF salvato</option>
+                      <option value="title">Titolo A-Z</option>
+                      <option value="author">Autore A-Z</option>
+                      <option value="key">Tonalita</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium mb-1.5 muted">Font</label>
+                    <select
+                      value={pdfOptions.fontFamily}
+                      onChange={(e) => setPdfOptions((prev) => ({ ...prev, fontFamily: e.target.value as PdfFontFamily }))}
+                      className="w-full rounded-xl border px-3 py-2.5 text-sm input-field"
+                    >
+                      <option value="sans">Noto Sans</option>
+                      <option value="serif">Noto Serif</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="grid gap-3 sm:grid-cols-2 mb-5">
+                  <label className="block rounded-xl border p-3">
+                    <span className="block text-sm font-medium mb-1 muted">Titolo</span>
+                    <input
+                      type="range"
+                      min="12"
+                      max="22"
+                      value={pdfOptions.titleSize}
+                      onChange={(e) => setPdfOptions((prev) => ({ ...prev, titleSize: Number(e.target.value) }))}
+                      className="w-full"
+                    />
+                    <span className="text-xs muted">{pdfOptions.titleSize} pt</span>
+                  </label>
+                  <label className="block rounded-xl border p-3">
+                    <span className="block text-sm font-medium mb-1 muted">Testo strofe</span>
+                    <input
+                      type="range"
+                      min="8"
+                      max="14"
+                      value={pdfOptions.bodySize}
+                      onChange={(e) => setPdfOptions((prev) => ({ ...prev, bodySize: Number(e.target.value) }))}
+                      className="w-full"
+                    />
+                    <span className="text-xs muted">{pdfOptions.bodySize} pt</span>
+                  </label>
+                  <label className="block rounded-xl border p-3">
+                    <span className="block text-sm font-medium mb-1 muted">Ritornello</span>
+                    <input
+                      type="range"
+                      min="8"
+                      max="16"
+                      value={pdfOptions.refrainSize}
+                      onChange={(e) => setPdfOptions((prev) => ({ ...prev, refrainSize: Number(e.target.value) }))}
+                      className="w-full"
+                    />
+                    <span className="text-xs muted">{pdfOptions.refrainSize} pt</span>
+                  </label>
+                  <label className="block rounded-xl border p-3">
+                    <span className="block text-sm font-medium mb-1 muted">Note a destra</span>
+                    <input
+                      type="range"
+                      min="6"
+                      max="12"
+                      value={pdfOptions.noteSize}
+                      onChange={(e) => setPdfOptions((prev) => ({ ...prev, noteSize: Number(e.target.value) }))}
+                      className="w-full"
+                    />
+                    <span className="text-xs muted">{pdfOptions.noteSize} pt</span>
+                  </label>
+                </div>
                 <div className="flex gap-3">
                   <button
                     onClick={() => setPdfModalOpen(false)}
