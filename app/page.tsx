@@ -44,6 +44,21 @@ function getNextSortOrder(songs: Song[]): number {
   return songs.reduce((max, song) => Math.max(max, song.sort_order ?? 0), 0) + 1;
 }
 
+function splitKeyAndCapo(value: string | null): { key: string; capo: string } {
+  if (!value) return { key: "", capo: "" };
+  const match = value.match(/^(.*?)\s+capo\s+(\d+)$/i);
+  if (!match) return { key: value, capo: "" };
+  return { key: match[1].trim(), capo: match[2] };
+}
+
+function composeKeyWithCapo(key: string, capo: string): string | null {
+  const cleanKey = key.trim();
+  const cleanCapo = capo.trim();
+  if (!cleanKey && !cleanCapo) return null;
+  if (!cleanKey) return `capo ${cleanCapo}`;
+  return cleanCapo ? `${cleanKey} capo ${cleanCapo}` : cleanKey;
+}
+
 function compareSongsByOrder(mode: PdfOrderMode | SortMode, a: Song, b: Song): number {
   if (mode === "manual") return compareSongManualOrder(a, b);
   if (mode === "title") return a.title.localeCompare(b.title, "ro");
@@ -324,6 +339,7 @@ export default function Home() {
   const [importTitle, setImportTitle] = useState("");
   const [importAuthor, setImportAuthor] = useState("");
   const [importKey, setImportKey] = useState("");
+  const [importCapo, setImportCapo] = useState("");
   const [importText, setImportText] = useState("");
 
   // Search
@@ -336,6 +352,7 @@ export default function Home() {
   const [editTitle, setEditTitle] = useState("");
   const [editAuthor, setEditAuthor] = useState("");
   const [editKey, setEditKey] = useState("");
+  const [editCapo, setEditCapo] = useState("");
   const [editBlocks, setEditBlocks] = useState<EditSongBlock[]>([]);
   const [saving, setSaving] = useState(false);
   const [reorderSaving, setReorderSaving] = useState(false);
@@ -738,12 +755,13 @@ export default function Home() {
   const handleImportSave = useCallback(async () => {
     setSaving(true);
     try {
-      await saveSong(importTitle, importAuthor, importKey || null, importText, importUrl || null);
+      await saveSong(importTitle, importAuthor, composeKeyWithCapo(importKey, importCapo), importText, importUrl || null);
       showToast("Canzone salvata!");
       setScrapedSong(null);
       setImportUrl("");
       setImportText("");
       setImportKey("");
+      setImportCapo("");
       setImportTitle("");
       setImportAuthor("");
       setSearchQuery("");
@@ -751,14 +769,16 @@ export default function Home() {
       setActiveTab("indice");
     } catch { showToast("Errore durante il salvataggio"); }
     setSaving(false);
-  }, [importTitle, importAuthor, importKey, importText, importUrl, saveSong, showToast]);
+  }, [importTitle, importAuthor, importKey, importCapo, importText, importUrl, saveSong, showToast]);
 
   // ─── Edit: start ───
   const startEdit = useCallback((song: Song) => {
     const parsed = parseEditBlocks(song.text);
     setEditTitle(song.title);
     setEditAuthor(song.author);
-    setEditKey(song.key || "");
+    const parsedKey = splitKeyAndCapo(song.key);
+    setEditKey(parsedKey.key);
+    setEditCapo(parsedKey.capo);
     setEditBlocks(parsed.length ? parsed : [createEditBlock("strofa", 1)]);
     setActiveTab("modifica");
   }, []);
@@ -836,13 +856,14 @@ export default function Home() {
 
     setSaving(true);
     try {
-      await updateSong(selectedSong.id, editTitle, editAuthor, editKey || null, normalizedText);
+      const normalizedKey = composeKeyWithCapo(editKey, editCapo);
+      await updateSong(selectedSong.id, editTitle, editAuthor, normalizedKey, normalizedText);
       showToast("Modifiche salvate!");
-      setSelectedSong({ ...selectedSong, title: editTitle, author: editAuthor, key: editKey || null, text: normalizedText });
+      setSelectedSong({ ...selectedSong, title: editTitle, author: editAuthor, key: normalizedKey, text: normalizedText });
       setActiveTab("canzone");
     } catch { showToast("Errore durante il salvataggio"); }
     setSaving(false);
-  }, [selectedSong, editTitle, editAuthor, editKey, editBlocks, composeEditText, updateSong, showToast]);
+  }, [selectedSong, editTitle, editAuthor, editKey, editCapo, editBlocks, composeEditText, updateSong, showToast]);
 
   // ─── Edit: delete ───
   const handleDelete = useCallback(async () => {
@@ -1762,12 +1783,26 @@ export default function Home() {
                   </div>
 
                   {/* Key */}
-                  <div>
-                    <label className="block text-xs font-semibold mb-1 muted">Tonalita</label>
-                    <select value={importKey} onChange={(e) => setImportKey(e.target.value)} className="px-3 py-2 rounded-lg border text-sm input-field">
-                      <option value="">Seleziona...</option>
-                      {ALL_KEYS.map((k) => <option key={k} value={k}>{k}</option>)}
-                    </select>
+                  <div className="grid grid-cols-[minmax(0,1fr)_110px] gap-3">
+                    <div>
+                      <label className="block text-xs font-semibold mb-1 muted">Tonalita</label>
+                      <select value={importKey} onChange={(e) => setImportKey(e.target.value)} className="w-full px-3 py-2 rounded-lg border text-sm input-field">
+                        <option value="">Seleziona...</option>
+                        {ALL_KEYS.map((k) => <option key={k} value={k}>{k}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold mb-1 muted">Capo</label>
+                      <input
+                        type="number"
+                        min="0"
+                        max="12"
+                        value={importCapo}
+                        onChange={(e) => setImportCapo(e.target.value)}
+                        className="w-full px-3 py-2 rounded-lg border text-sm input-field"
+                        placeholder="4"
+                      />
+                    </div>
                   </div>
 
                   {/* Text editor */}
@@ -1792,7 +1827,7 @@ export default function Home() {
                           <div className="flex-1">
                             <h4 className="song-view-title text-xl">{importTitle}</h4>
                           </div>
-                          {importKey && <span className="song-view-key">{importKey}</span>}
+                          {composeKeyWithCapo(importKey, importCapo) && <span className="song-view-key">{composeKeyWithCapo(importKey, importCapo)}</span>}
                         </div>
                         <div className="song-text text-sm">
                           <SongSections text={importText} />
@@ -1828,12 +1863,26 @@ export default function Home() {
                 </div>
               </div>
 
-              <div className="mb-5">
-                <label className="block text-xs font-semibold mb-1 muted">Tonalita</label>
-                <select value={editKey} onChange={(e) => setEditKey(e.target.value)} className="px-3 py-2 rounded-lg border text-sm input-field">
-                  <option value="">Seleziona...</option>
-                  {ALL_KEYS.map((k) => <option key={k} value={k}>{k}</option>)}
-                </select>
+              <div className="grid grid-cols-[minmax(0,1fr)_110px] gap-3 mb-5">
+                <div>
+                  <label className="block text-xs font-semibold mb-1 muted">Tonalita</label>
+                  <select value={editKey} onChange={(e) => setEditKey(e.target.value)} className="w-full px-3 py-2 rounded-lg border text-sm input-field">
+                    <option value="">Seleziona...</option>
+                    {ALL_KEYS.map((k) => <option key={k} value={k}>{k}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold mb-1 muted">Capo</label>
+                  <input
+                    type="number"
+                    min="0"
+                    max="12"
+                    value={editCapo}
+                    onChange={(e) => setEditCapo(e.target.value)}
+                    className="w-full px-3 py-2 rounded-lg border text-sm input-field"
+                    placeholder="4"
+                  />
+                </div>
               </div>
 
               <div className="mb-5">
