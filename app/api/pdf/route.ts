@@ -38,32 +38,6 @@ Font.register({
   ],
 });
 
-Font.register({
-  family: "NotoSerif",
-  fonts: [
-    {
-      src: "https://fonts.gstatic.com/s/notoserif/v33/ga6iaw1J5X9T9RW6j9bNVls-hfgvz8JcMofYTa32J4wsL2JAlAhZqFCjwA.ttf",
-      fontWeight: 400,
-      fontStyle: "normal",
-    },
-    {
-      src: "https://fonts.gstatic.com/s/notoserif/v33/ga6iaw1J5X9T9RW6j9bNVls-hfgvz8JcMofYTa32J4wsL2JAlAhZT1ejwA.ttf",
-      fontWeight: 700,
-      fontStyle: "normal",
-    },
-    {
-      src: "https://fonts.gstatic.com/s/notoserif/v33/ga6saw1J5X9T9RW6j9bNfFIMZhhWnFTyNZIQD1-_FXP0RgnaOg9MYBNLg8cP.ttf",
-      fontWeight: 400,
-      fontStyle: "italic",
-    },
-    {
-      src: "https://fonts.gstatic.com/s/notoserif/v33/ga6saw1J5X9T9RW6j9bNfFIMZhhWnFTyNZIQD1-_FXP0RgnaOg9MYBOshMcP.ttf",
-      fontWeight: 700,
-      fontStyle: "italic",
-    },
-  ],
-});
-
 Font.registerHyphenationCallback((word) => [word]);
 
 const BLUE = "#1a2e6e";
@@ -101,11 +75,6 @@ function parseNote(line: string): { text: string; note: string | null } {
     return { text: prefixLabelMatch[2].trimEnd(), note: prefixLabelMatch[1].trim() };
   }
 
-  const suffixLabelMatch = trimmed.match(/^(.+?)\s*[\-–]\s*((?:ref(?:ren)?|rit(?:ornello)?|coro|chorus|bis)(?:\s*x\s*\d+|\s*\d+\s*x)?)$/i);
-  if (suffixLabelMatch) {
-    return { text: suffixLabelMatch[1].trimEnd(), note: suffixLabelMatch[2].trim() };
-  }
-
   return { text: trimmed, note: null };
 }
 
@@ -117,39 +86,11 @@ interface SongLine {
 interface SongBlock {
   type: "stanza" | "refrain";
   lines: SongLine[];
-  note: string | null;
 }
 
 function parseSectionNoteLine(line: string): string | null {
   const match = line.trim().match(/^@note:\s*(.+)$/i);
   return match ? match[1].trim() : null;
-}
-
-interface PdfOptions {
-  order?: "current" | "manual" | "title" | "author" | "key";
-  fontFamily?: "sans" | "serif";
-  titleSize?: number;
-  bodySize?: number;
-  refrainSize?: number;
-  noteSize?: number;
-}
-
-interface ResolvedPdfOptions {
-  fontFamily: "NotoSans" | "NotoSerif";
-  titleSize: number;
-  bodySize: number;
-  refrainSize: number;
-  noteSize: number;
-}
-
-function resolvePdfOptions(raw?: PdfOptions): ResolvedPdfOptions {
-  return {
-    fontFamily: raw?.fontFamily === "serif" ? "NotoSerif" : "NotoSans",
-    titleSize: Math.min(22, Math.max(12, raw?.titleSize ?? 14)),
-    bodySize: Math.min(14, Math.max(8, raw?.bodySize ?? 10)),
-    refrainSize: Math.min(16, Math.max(8, raw?.refrainSize ?? 10)),
-    noteSize: Math.min(12, Math.max(6, raw?.noteSize ?? 7)),
-  };
 }
 
 function parseSongBlocks(text: string): SongBlock[] {
@@ -158,232 +99,215 @@ function parseSongBlocks(text: string): SongBlock[] {
 
   for (const raw of rawBlocks) {
     const rawLines = raw.split("\n").map((l) => l.trimEnd());
-    let blockNote: string | null = null;
+    let sectionNote: string | null = null;
     const contentLines = rawLines.filter((line) => {
       const note = parseSectionNoteLine(line);
       if (note) {
-        blockNote = note;
+        sectionNote = note;
         return false;
       }
       return true;
     });
-
     const firstLine = contentLines[0]?.trim() || "";
     const lines = contentLines.map((l) => parseNote(l));
 
+    if (sectionNote && lines[0] && !lines[0].note) {
+      lines[0] = { ...lines[0], note: sectionNote };
+    }
+
     if (isRefrainOrChorus(firstLine)) {
-      blocks.push({ type: "refrain", lines, note: blockNote });
+      blocks.push({ type: "refrain", lines });
     } else {
-      blocks.push({ type: "stanza", lines, note: blockNote });
+      blocks.push({ type: "stanza", lines });
     }
   }
 
   return blocks;
 }
 
-function createStyles(options: ResolvedPdfOptions) {
-  const bodyLineHeight = options.bodySize * 1.6;
-  const refrainLineHeight = options.refrainSize * 1.6;
-  const stanzaIndent = 26;
-  const continuationIndent = 24;
-  const refrainIndent = 18;
+const s = StyleSheet.create({
+  page: {
+    paddingTop: 48,
+    paddingBottom: 48,
+    paddingLeft: 54,
+    paddingRight: 54,
+    fontFamily: "NotoSans",
+    fontSize: 10,
+    color: BLACK,
+  },
+  coverPage: {
+    paddingTop: 60,
+    paddingBottom: 60,
+    paddingHorizontal: 65,
+    fontFamily: "NotoSans",
+  },
+  coverTitle: {
+    fontSize: 20,
+    fontFamily: "NotoSans",
+    fontWeight: 700,
+    textAlign: "center",
+    color: BLACK,
+    letterSpacing: 1,
+  },
+  indexPage: {
+    paddingTop: 48,
+    paddingBottom: 48,
+    paddingLeft: 54,
+    paddingRight: 54,
+    fontFamily: "NotoSans",
+    fontSize: 9,
+    color: BLACK,
+  },
+  indexTitle: {
+    fontSize: 12,
+    fontFamily: "NotoSans",
+    fontWeight: 700,
+    textAlign: "center",
+    marginBottom: 16,
+    color: BLACK,
+  },
+  indexRow: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    paddingVertical: 2,
+    borderBottomWidth: 0.3,
+    borderBottomColor: "#ddd",
+  },
+  indexNum: {
+    fontSize: 8,
+    width: 20,
+    textAlign: "right",
+    marginRight: 6,
+    color: GRAY,
+  },
+  indexSongTitle: {
+    fontSize: 9,
+    fontFamily: "NotoSans",
+    flex: 1,
+    color: BLACK,
+  },
+  indexSongLink: {
+    fontSize: 9,
+    fontFamily: "NotoSans",
+    flex: 1,
+    color: BLACK,
+    textDecoration: "none",
+  },
+  indexKey: {
+    fontSize: 8,
+    fontFamily: "NotoSans",
+    fontWeight: 700,
+    color: BLACK,
+    marginLeft: 6,
+    width: 40,
+    textAlign: "right",
+  },
+  indexPageNum: {
+    fontSize: 8,
+    color: GRAY,
+    width: 22,
+    textAlign: "right",
+    marginLeft: 4,
+  },
+  songHeaderRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    marginBottom: 20,
+  },
+  songTitle: {
+    fontSize: 14,
+    fontFamily: "NotoSans",
+    fontWeight: 700,
+    color: BLUE,
+    flex: 1,
+    lineHeight: 1.2,
+  },
+  songKey: {
+    fontSize: 10,
+    fontFamily: "NotoSans",
+    fontWeight: 700,
+    color: BLUE,
+    marginLeft: 16,
+    flexShrink: 0,
+  },
+  stanzaBlock: {
+    marginBottom: 12,
+  },
+  stanzaLineRow: {
+    flexDirection: "row",
+    alignItems: "baseline",
+  },
+  stanzaNumber: {
+    fontSize: 10,
+    fontFamily: "NotoSans",
+    lineHeight: 1.6,
+    color: BLACK,
+    width: 26,
+    textAlign: "right",
+    marginRight: 4,
+  },
+  stanzaLineText: {
+    fontSize: 10,
+    fontFamily: "NotoSans",
+    lineHeight: 1.6,
+    color: BLACK,
+    flex: 1,
+  },
+  stanzaContinuationLine: {
+    fontSize: 10,
+    fontFamily: "NotoSans",
+    lineHeight: 1.6,
+    color: BLACK,
+    paddingLeft: 30,
+    flex: 1,
+  },
+  refrainBlock: {
+    marginBottom: 12,
+    paddingLeft: 30,
+  },
+  refrainLine: {
+    fontSize: 10,
+    fontFamily: "NotoSans",
+    fontWeight: 700,
+    fontStyle: "italic",
+    lineHeight: 1.6,
+    color: BLACK,
+    flex: 1,
+  },
+  refrainLineRow: {
+    flexDirection: "row",
+    alignItems: "baseline",
+  },
+  noteOnSide: {
+    fontSize: 7,
+    fontFamily: "NotoSans",
+    color: GRAY,
+    flexShrink: 0,
+    marginLeft: 6,
+  },
+  emptyLine: {
+    height: 5,
+  },
+  footer: {
+    position: "absolute",
+    bottom: 24,
+    right: 54,
+  },
+  footerText: {
+    fontSize: 8,
+    color: BLACK,
+  },
+});
 
-  return StyleSheet.create({
-    page: {
-      paddingTop: 48,
-      paddingBottom: 48,
-      paddingLeft: 54,
-      paddingRight: 54,
-      fontFamily: options.fontFamily,
-      fontSize: options.bodySize,
-      color: BLACK,
-    },
-    coverPage: {
-      paddingTop: 60,
-      paddingBottom: 60,
-      paddingHorizontal: 65,
-      fontFamily: options.fontFamily,
-    },
-    coverTitle: {
-      fontSize: options.titleSize + 6,
-      fontFamily: options.fontFamily,
-      fontWeight: 700,
-      textAlign: "center",
-      color: BLACK,
-      letterSpacing: 1,
-    },
-    indexPage: {
-      paddingTop: 48,
-      paddingBottom: 48,
-      paddingLeft: 54,
-      paddingRight: 54,
-      fontFamily: options.fontFamily,
-      fontSize: Math.max(8, options.bodySize - 1),
-      color: BLACK,
-    },
-    indexTitle: {
-      fontSize: Math.max(11, options.bodySize + 2),
-      fontFamily: options.fontFamily,
-      fontWeight: 700,
-      textAlign: "center",
-      marginBottom: 16,
-      color: BLACK,
-    },
-    indexRow: {
-      flexDirection: "row",
-      alignItems: "baseline",
-      paddingVertical: 2,
-      borderBottomWidth: 0.3,
-      borderBottomColor: "#ddd",
-    },
-    indexNum: {
-      fontSize: Math.max(8, options.bodySize - 2),
-      width: 20,
-      textAlign: "right",
-      marginRight: 6,
-      color: GRAY,
-    },
-    indexSongLink: {
-      fontSize: Math.max(8, options.bodySize - 1),
-      fontFamily: options.fontFamily,
-      flex: 1,
-      color: BLACK,
-      textDecoration: "none",
-    },
-    indexKey: {
-      fontSize: Math.max(8, options.bodySize - 2),
-      fontFamily: options.fontFamily,
-      fontWeight: 700,
-      color: BLACK,
-      marginLeft: 6,
-      width: 40,
-      textAlign: "right",
-    },
-    indexPageNum: {
-      fontSize: Math.max(8, options.bodySize - 2),
-      color: GRAY,
-      width: 22,
-      textAlign: "right",
-      marginLeft: 4,
-    },
-    songHeaderRow: {
-      flexDirection: "row",
-      justifyContent: "space-between",
-      alignItems: "flex-start",
-      marginBottom: 20,
-    },
-    songTitle: {
-      fontSize: options.titleSize,
-      fontFamily: options.fontFamily,
-      fontWeight: 700,
-      color: BLUE,
-      flex: 1,
-      lineHeight: 1.2,
-    },
-    songKey: {
-      fontSize: Math.max(8, options.bodySize),
-      fontFamily: options.fontFamily,
-      fontWeight: 700,
-      color: BLUE,
-      marginLeft: 16,
-      flexShrink: 0,
-    },
-    stanzaBlock: {
-      marginBottom: 12,
-    },
-    blockWrapper: {
-      position: "relative",
-      marginBottom: 12,
-    },
-    blockContentWithNote: {
-      paddingRight: 66,
-    },
-    lyricRow: {
-      flexDirection: "row",
-      alignItems: "flex-start",
-      width: "100%",
-    },
-    lyricMain: {
-      flex: 1,
-      minWidth: 0,
-    },
-    stanzaFirstLineMain: {
-      flexDirection: "row",
-      alignItems: "flex-start",
-      flex: 1,
-      minWidth: 0,
-    },
-    stanzaNumber: {
-      fontSize: options.bodySize,
-      fontFamily: options.fontFamily,
-      lineHeight: bodyLineHeight,
-      color: BLACK,
-      width: stanzaIndent,
-      textAlign: "right",
-      marginRight: 4,
-    },
-    stanzaLineText: {
-      fontSize: options.bodySize,
-      fontFamily: options.fontFamily,
-      lineHeight: bodyLineHeight,
-      color: BLACK,
-      flex: 1,
-    },
-    stanzaContinuationLine: {
-      fontSize: options.bodySize,
-      fontFamily: options.fontFamily,
-      lineHeight: bodyLineHeight,
-      color: BLACK,
-      paddingLeft: continuationIndent,
-      flex: 1,
-    },
-    refrainBlock: {
-      marginBottom: 12,
-      paddingLeft: refrainIndent,
-    },
-    refrainLine: {
-      fontSize: options.refrainSize,
-      fontFamily: options.fontFamily,
-      fontWeight: 700,
-      fontStyle: "italic",
-      lineHeight: refrainLineHeight,
-      color: BLACK,
-      flex: 1,
-    },
-    noteOnSide: {
-      position: "absolute",
-      top: 1,
-      right: 0,
-      fontSize: options.noteSize,
-      fontFamily: options.fontFamily,
-      color: GRAY,
-      width: 54,
-      textAlign: "right",
-    },
-    emptyLine: {
-      height: 5,
-    },
-    footer: {
-      position: "absolute",
-      bottom: 24,
-      right: 54,
-    },
-    footerText: {
-      fontSize: 8,
-      color: BLACK,
-    },
-  });
-}
-
-function renderStanzaBlock(block: SongBlock, blockIdx: number, styles: ReturnType<typeof createStyles>): React.ReactElement {
+function renderStanzaBlock(block: SongBlock, blockIdx: number): React.ReactElement {
   const elements: React.ReactElement[] = [];
-  const sideNote = block.note || block.lines.find((line) => line.note)?.note || null;
 
   block.lines.forEach((line, lineIdx) => {
-    const { text: trimmed } = line;
+    const { text: trimmed, note } = line;
     if (trimmed === "") {
       elements.push(
-        React.createElement(View, { key: `e-${blockIdx}-${lineIdx}`, style: styles.emptyLine })
+        React.createElement(View, { key: `e-${blockIdx}-${lineIdx}`, style: s.emptyLine })
       );
       return;
     }
@@ -394,21 +318,19 @@ function renderStanzaBlock(block: SongBlock, blockIdx: number, styles: ReturnTyp
         elements.push(
           React.createElement(
             View,
-            { key: `l-${blockIdx}-${lineIdx}`, style: styles.lyricRow },
-            React.createElement(
-              View,
-              { style: styles.stanzaFirstLineMain },
-              React.createElement(Text, { style: styles.stanzaNumber }, match[1]),
-              React.createElement(Text, { style: styles.stanzaLineText }, match[2])
-            )
+            { key: `l-${blockIdx}-${lineIdx}`, style: s.stanzaLineRow },
+            React.createElement(Text, { style: s.stanzaNumber }, match[1]),
+            React.createElement(Text, { style: s.stanzaLineText }, match[2]),
+            note ? React.createElement(Text, { style: s.noteOnSide }, `(${note})`) : null
           )
         );
       } else {
         elements.push(
           React.createElement(
             View,
-            { key: `l-${blockIdx}-${lineIdx}`, style: styles.lyricRow },
-            React.createElement(View, { style: styles.lyricMain }, React.createElement(Text, { style: styles.stanzaLineText }, trimmed))
+            { key: `l-${blockIdx}-${lineIdx}`, style: s.stanzaLineRow },
+            React.createElement(Text, { style: s.stanzaLineText }, trimmed),
+            note ? React.createElement(Text, { style: s.noteOnSide }, `(${note})`) : null
           )
         );
       }
@@ -416,8 +338,9 @@ function renderStanzaBlock(block: SongBlock, blockIdx: number, styles: ReturnTyp
       elements.push(
         React.createElement(
           View,
-          { key: `l-${blockIdx}-${lineIdx}`, style: styles.lyricRow },
-          React.createElement(View, { style: styles.lyricMain }, React.createElement(Text, { style: styles.stanzaContinuationLine }, trimmed))
+          { key: `l-${blockIdx}-${lineIdx}`, style: s.stanzaLineRow },
+          React.createElement(Text, { style: s.stanzaContinuationLine }, trimmed),
+          note ? React.createElement(Text, { style: s.noteOnSide }, `(${note})`) : null
         )
       );
     }
@@ -425,25 +348,19 @@ function renderStanzaBlock(block: SongBlock, blockIdx: number, styles: ReturnTyp
 
   return React.createElement(
     View,
-    { key: `block-${blockIdx}`, style: styles.blockWrapper, wrap: false } as Record<string, unknown>,
-    React.createElement(
-      View,
-      { style: sideNote ? [styles.stanzaBlock, styles.blockContentWithNote] : styles.stanzaBlock },
-      ...elements
-    ),
-    sideNote ? React.createElement(Text, { style: styles.noteOnSide }, `(${sideNote})`) : null
+    { key: `block-${blockIdx}`, style: s.stanzaBlock, wrap: false } as Record<string, unknown>,
+    ...elements
   );
 }
 
-function renderRefrainBlock(block: SongBlock, blockIdx: number, styles: ReturnType<typeof createStyles>): React.ReactElement {
+function renderRefrainBlock(block: SongBlock, blockIdx: number): React.ReactElement {
   const elements: React.ReactElement[] = [];
-  const sideNote = block.note || block.lines.find((line) => line.note)?.note || null;
 
   block.lines.forEach((line, lineIdx) => {
-    const { text: trimmed } = line;
+    const { text: trimmed, note } = line;
     if (trimmed === "") {
       elements.push(
-        React.createElement(View, { key: `e-${blockIdx}-${lineIdx}`, style: styles.emptyLine })
+        React.createElement(View, { key: `e-${blockIdx}-${lineIdx}`, style: s.emptyLine })
       );
       return;
     }
@@ -451,26 +368,21 @@ function renderRefrainBlock(block: SongBlock, blockIdx: number, styles: ReturnTy
     elements.push(
       React.createElement(
         View,
-        { key: `l-${blockIdx}-${lineIdx}`, style: styles.lyricRow },
-        React.createElement(View, { style: styles.lyricMain }, React.createElement(Text, { style: styles.refrainLine }, trimmed))
+        { key: `l-${blockIdx}-${lineIdx}`, style: s.refrainLineRow },
+        React.createElement(Text, { style: s.refrainLine }, trimmed),
+        note ? React.createElement(Text, { style: s.noteOnSide }, `(${note})`) : null
       )
     );
   });
 
   return React.createElement(
     View,
-    { key: `block-${blockIdx}`, style: styles.blockWrapper, wrap: false } as Record<string, unknown>,
-    React.createElement(
-      View,
-      { style: sideNote ? [styles.refrainBlock, styles.blockContentWithNote] : styles.refrainBlock },
-      ...elements
-    ),
-    sideNote ? React.createElement(Text, { style: styles.noteOnSide }, `(${sideNote})`) : null
+    { key: `block-${blockIdx}`, style: s.refrainBlock, wrap: false } as Record<string, unknown>,
+    ...elements
   );
 }
 
-function SongBookDocument({ songs, title, options }: { songs: Song[]; title: string; options: ResolvedPdfOptions }) {
-  const s = createStyles(options);
+function SongBookDocument({ songs, title }: { songs: Song[]; title: string }) {
   const showCover = songs.length > 1;
   const showIndex = songs.length > 1;
   const indexPages = Math.max(1, Math.ceil(songs.length / 40));
@@ -536,9 +448,9 @@ function SongBookDocument({ songs, title, options }: { songs: Song[]; title: str
 
       blocks.forEach((block, blockIdx) => {
         if (block.type === "refrain") {
-          songElements.push(renderRefrainBlock(block, blockIdx, s));
+          songElements.push(renderRefrainBlock(block, blockIdx));
         } else {
-          songElements.push(renderStanzaBlock(block, blockIdx, s));
+          songElements.push(renderStanzaBlock(block, blockIdx));
         }
       });
 
@@ -561,7 +473,7 @@ function SongBookDocument({ songs, title, options }: { songs: Song[]; title: str
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { songs, title, options } = body;
+    const { songs, title } = body;
 
     if (!songs || !Array.isArray(songs) || songs.length === 0) {
       return NextResponse.json(
@@ -571,8 +483,7 @@ export async function POST(request: NextRequest) {
     }
 
     const pdfTitle = typeof title === "string" && title.trim() ? title.trim() : "Quaderno Canzoni";
-    const resolvedOptions = resolvePdfOptions(options as PdfOptions | undefined);
-    const doc = React.createElement(SongBookDocument, { songs, title: pdfTitle, options: resolvedOptions });
+    const doc = React.createElement(SongBookDocument, { songs, title: pdfTitle });
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const buffer = await renderToBuffer(doc as any);
     const uint8 = new Uint8Array(buffer);

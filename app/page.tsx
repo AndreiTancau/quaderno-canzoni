@@ -1966,40 +1966,9 @@ export default function Home() {
                           <option value="key">Tonalita</option>
                         </select>
                       </div>
-
-                      <div>
-                        <label className="block text-sm font-semibold mb-1.5 muted">Font</label>
-                        <select
-                          value={pdfOptions.fontFamily}
-                          onChange={(e) => setPdfOptions((prev) => ({ ...prev, fontFamily: e.target.value as PdfFontFamily }))}
-                          className="w-full rounded-xl border px-3 py-2.5 text-sm input-field"
-                        >
-                          <option value="sans">Noto Sans</option>
-                          <option value="serif">Noto Serif</option>
-                        </select>
+                      <div className="rounded-2xl border bg-white/70 p-4 text-sm leading-relaxed text-black/70">
+                        Il layout PDF usa lo stile stabile originale. Da qui puoi cambiare solo l&apos;ordine, così il testo resta leggibile e non si accavalla.
                       </div>
-
-                      {[
-                        ["titleSize", "Titolo", 12, 22],
-                        ["bodySize", "Testo strofe", 8, 14],
-                        ["refrainSize", "Ritornello", 8, 16],
-                        ["noteSize", "Note a destra", 6, 12],
-                      ].map(([key, label, min, max]) => (
-                        <label key={key} className="block rounded-2xl border bg-white/70 p-3">
-                          <span className="flex justify-between text-sm font-semibold muted">
-                            <span>{label}</span>
-                            <span>{pdfOptions[key as keyof PdfExportOptions]} pt</span>
-                          </span>
-                          <input
-                            type="range"
-                            min={min}
-                            max={max}
-                            value={pdfOptions[key as keyof PdfExportOptions] as number}
-                            onChange={(e) => setPdfOptions((prev) => ({ ...prev, [key]: Number(e.target.value) }))}
-                            className="mt-2 w-full"
-                          />
-                        </label>
-                      ))}
                     </div>
                   </aside>
 
@@ -2007,7 +1976,7 @@ export default function Home() {
                     <div className="flex flex-col gap-3 rounded-2xl border border-black/10 bg-white/65 p-3 sm:flex-row sm:items-center sm:justify-between">
                       <div>
                         <p className="text-[10px] font-bold uppercase tracking-[0.24em] text-[#9a7d4f]">PDF reale</p>
-                        <p className="text-sm font-semibold text-black/75">L’anteprima si rigenera quando cambi ordine, font o dimensioni.</p>
+                        <p className="text-sm font-semibold text-black/75">L’anteprima si rigenera quando cambi l’ordine.</p>
                       </div>
                       <div className="flex max-h-32 flex-wrap gap-1 overflow-y-auto sm:max-w-sm">
                         {pdfPreviewSongs.map((song, idx) => (
