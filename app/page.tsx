@@ -1938,7 +1938,7 @@ export default function Home() {
                   </button>
                 </div>
 
-                <div className="grid max-h-[calc(92vh-138px)] grid-cols-1 overflow-y-auto lg:grid-cols-[360px_minmax(0,1fr)]">
+                <div className="grid max-h-[calc(92vh-138px)] grid-cols-1 overflow-y-auto lg:grid-cols-[420px_minmax(0,1fr)]">
                   <aside className="border-b border-black/10 bg-white/55 p-5 lg:border-b-0 lg:border-r lg:p-6">
                     <label className="block text-sm font-semibold mb-1.5 muted">Titolo del documento</label>
                     <input
@@ -1966,6 +1966,51 @@ export default function Home() {
                           <option value="key">Tonalita</option>
                         </select>
                       </div>
+
+                      <div className="rounded-2xl border bg-white/80 p-3 shadow-sm">
+                        <div className="mb-3 flex items-end justify-between gap-3">
+                          <div>
+                            <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#9a7d4f]">Ordine anteprima</p>
+                            <p className="text-xs font-semibold text-black/65">Usa le frecce per questo PDF.</p>
+                          </div>
+                          <span className="rounded-full bg-[#f4ecd9] px-2.5 py-1 text-[11px] font-bold text-[#7c633c]">
+                            {pdfPreviewSongs.length}
+                          </span>
+                        </div>
+
+                        <div className="max-h-[34vh] space-y-2 overflow-y-auto pr-1">
+                          {pdfPreviewSongs.map((song, idx) => (
+                            <div key={song.id} className="grid grid-cols-[34px_minmax(0,1fr)_72px] items-center gap-2 rounded-xl border border-black/10 bg-[#fbfaf7] px-2.5 py-2 shadow-sm">
+                              <span className="text-right text-xs font-bold tabular-nums text-[#9a7d4f]">{idx + 1}.</span>
+                              <div className="min-w-0">
+                                <p className="truncate text-sm font-bold text-[#1a2e6e]">{song.title}</p>
+                                <p className="truncate text-[11px] font-medium text-black/55">{song.author || "Senza autore"}{song.key ? ` · ${song.key}` : ""}</p>
+                              </div>
+                              <div className="flex justify-end gap-1">
+                                <button
+                                  type="button"
+                                  onClick={() => movePdfPreviewSong(song.id, "up")}
+                                  disabled={idx === 0}
+                                  className="h-8 w-8 rounded-lg border bg-white text-sm font-bold shadow-sm disabled:opacity-30"
+                                  title="Sposta su"
+                                >
+                                  ↑
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => movePdfPreviewSong(song.id, "down")}
+                                  disabled={idx === pdfPreviewSongs.length - 1}
+                                  className="h-8 w-8 rounded-lg border bg-white text-sm font-bold shadow-sm disabled:opacity-30"
+                                  title="Sposta giu"
+                                >
+                                  ↓
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
                       <div className="rounded-2xl border bg-white/70 p-4 text-sm leading-relaxed text-black/70">
                         Il layout PDF usa lo stile stabile originale. Da qui puoi cambiare solo l&apos;ordine, così il testo resta leggibile e non si accavalla.
                       </div>
@@ -1973,37 +2018,12 @@ export default function Home() {
                   </aside>
 
                   <section className="grid min-h-[640px] grid-rows-[auto_minmax(0,1fr)] gap-4 p-4 sm:p-6 lg:p-8">
-                    <div className="flex flex-col gap-3 rounded-2xl border border-black/10 bg-white/65 p-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="flex flex-col gap-1 rounded-2xl border border-black/10 bg-white/65 p-3 sm:flex-row sm:items-center sm:justify-between">
                       <div>
                         <p className="text-[10px] font-bold uppercase tracking-[0.24em] text-[#9a7d4f]">PDF reale</p>
                         <p className="text-sm font-semibold text-black/75">L’anteprima si rigenera quando cambi l’ordine.</p>
                       </div>
-                      <div className="flex max-h-32 flex-wrap gap-1 overflow-y-auto sm:max-w-sm">
-                        {pdfPreviewSongs.map((song, idx) => (
-                          <div key={song.id} className="group flex items-center gap-1 rounded-full border bg-white px-2 py-1 text-[11px] font-semibold shadow-sm">
-                            <span className="text-[#9a7d4f]">{idx + 1}</span>
-                            <span className="max-w-28 truncate">{song.title}</span>
-                            <button
-                              type="button"
-                              onClick={() => movePdfPreviewSong(song.id, "up")}
-                              disabled={idx === 0}
-                              className="ml-1 rounded px-1 disabled:opacity-30"
-                              title="Sposta su"
-                            >
-                              ↑
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => movePdfPreviewSong(song.id, "down")}
-                              disabled={idx === pdfPreviewSongs.length - 1}
-                              className="rounded px-1 disabled:opacity-30"
-                              title="Sposta giu"
-                            >
-                              ↓
-                            </button>
-                          </div>
-                        ))}
-                      </div>
+                      <span className="text-xs font-bold text-black/45">Ordine a sinistra</span>
                     </div>
 
                     <div className="relative overflow-hidden rounded-2xl border border-black/10 bg-[#d8d1c3] shadow-inner">
