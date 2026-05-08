@@ -182,7 +182,8 @@ function parseSongBlocks(text: string): SongBlock[] {
 }
 
 function createStyles(options: ResolvedPdfOptions) {
-  const lineHeight = 1.55;
+  const bodyLineHeight = options.bodySize * 1.6;
+  const refrainLineHeight = options.refrainSize * 1.6;
   const stanzaIndent = 26;
   const continuationIndent = 24;
   const refrainIndent = 18;
@@ -315,7 +316,7 @@ function createStyles(options: ResolvedPdfOptions) {
     stanzaNumber: {
       fontSize: options.bodySize,
       fontFamily: options.fontFamily,
-      lineHeight,
+      lineHeight: bodyLineHeight,
       color: BLACK,
       width: stanzaIndent,
       textAlign: "right",
@@ -324,14 +325,14 @@ function createStyles(options: ResolvedPdfOptions) {
     stanzaLineText: {
       fontSize: options.bodySize,
       fontFamily: options.fontFamily,
-      lineHeight,
+      lineHeight: bodyLineHeight,
       color: BLACK,
       flex: 1,
     },
     stanzaContinuationLine: {
       fontSize: options.bodySize,
       fontFamily: options.fontFamily,
-      lineHeight,
+      lineHeight: bodyLineHeight,
       color: BLACK,
       paddingLeft: continuationIndent,
       flex: 1,
@@ -345,7 +346,7 @@ function createStyles(options: ResolvedPdfOptions) {
       fontFamily: options.fontFamily,
       fontWeight: 700,
       fontStyle: "italic",
-      lineHeight,
+      lineHeight: refrainLineHeight,
       color: BLACK,
       flex: 1,
     },
