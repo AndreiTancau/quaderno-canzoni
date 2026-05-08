@@ -44,19 +44,29 @@ function getNextSortOrder(songs: Song[]): number {
   return songs.reduce((max, song) => Math.max(max, song.sort_order ?? 0), 0) + 1;
 }
 
-function splitKeyAndCapo(value: string | null): { key: string; capo: string } {
-  if (!value) return { key: "", capo: "" };
-  const match = value.match(/^(.*?)\s+capo\s+(\d+)$/i);
-  if (!match) return { key: value, capo: "" };
-  return { key: match[1].trim(), capo: match[2] };
+function splitKeyAndCapo(value: string | null): { key: string; capoKey: string; capo: string } {
+  if (!value) return { key: "", capoKey: "", capo: "" };
+
+  const combinedMatch = value.match(/^(.*?)\s*\/\s*(.*?)\s+capo\s+(\d+)$/i);
+  if (combinedMatch) {
+    return { key: combinedMatch[1].trim(), capoKey: combinedMatch[2].trim(), capo: combinedMatch[3] };
+  }
+
+  const capoOnlyMatch = value.match(/^(.*?)\s+capo\s+(\d+)$/i);
+  if (capoOnlyMatch) return { key: "", capoKey: capoOnlyMatch[1].trim(), capo: capoOnlyMatch[2] };
+
+  return { key: value, capoKey: "", capo: "" };
 }
 
-function composeKeyWithCapo(key: string, capo: string): string | null {
+function composeKeyWithCapo(key: string, capoKey: string, capo: string): string | null {
   const cleanKey = key.trim();
+  const cleanCapoKey = capoKey.trim();
   const cleanCapo = capo.trim();
-  if (!cleanKey && !cleanCapo) return null;
-  if (!cleanKey) return `capo ${cleanCapo}`;
-  return cleanCapo ? `${cleanKey} capo ${cleanCapo}` : cleanKey;
+  if (!cleanKey && !cleanCapoKey && !cleanCapo) return null;
+
+  const capoPart = cleanCapoKey || cleanCapo ? `${cleanCapoKey || "capo"}${cleanCapo ? ` capo ${cleanCapo}` : ""}` : "";
+  if (cleanKey && capoPart) return `${cleanKey} / ${capoPart}`;
+  return cleanKey || capoPart;
 }
 
 function compareSongsByOrder(mode: PdfOrderMode | SortMode, a: Song, b: Song): number {
@@ -88,25 +98,30 @@ const DEFAULT_PDF_OPTIONS: PdfExportOptions = {
   noteSize: 7,
 };
 
-const SECTION_NOTE_PREFIX = "@note:";
+type SectionNotePosition = "right" | "bottom";
 
 function isSectionNoteLine(line: string): boolean {
-  return /^@note:\s*/i.test(line.trim());
+  return /^@note(?:-(?:right|bottom))?:\s*/i.test(line.trim());
 }
 
-function extractSectionNote(lines: string[]): { note: string; lines: string[] } {
+function extractSectionNote(lines: string[]): { note: string; notePosition: SectionNotePosition; lines: string[] } {
   let note = "";
+  let notePosition: SectionNotePosition = "right";
   const visibleLines: string[] = [];
 
   lines.forEach((line) => {
     if (isSectionNoteLine(line)) {
-      note = line.replace(/^@note:\s*/i, "").trim();
+      const match = line.trim().match(/^@note(?:-(right|bottom))?:\s*(.+)$/i);
+      if (match) {
+        notePosition = match[1]?.toLowerCase() === "bottom" ? "bottom" : "right";
+        note = match[2].trim();
+      }
     } else {
       visibleLines.push(line);
     }
   });
 
-  return { note, lines: visibleLines };
+  return { note, notePosition, lines: visibleLines };
 }
 
 interface ParsedSection {
@@ -122,6 +137,7 @@ interface EditSongBlock {
   type: SectionType;
   text: string;
   note: string;
+  notePosition: SectionNotePosition;
 }
 
 function detectSectionMeta(firstLine: string): { label: string; type: SectionType; stanzaNumber?: number } {
@@ -167,6 +183,7 @@ function parseEditBlocks(text: string): EditSongBlock[] {
       type: meta.type,
       text: blockText,
       note: extracted.note,
+      notePosition: extracted.notePosition,
     };
   });
 }
@@ -187,24 +204,24 @@ function getNextStanzaNumber(blocks: EditSongBlock[]): number {
 
 function createEditBlock(type: SectionType, stanzaNumber = 1): EditSongBlock {
   if (type === "strofa") {
-    return { label: `STROFA ${stanzaNumber}`, type, text: `${stanzaNumber}. `, note: "" };
+    return { label: `STROFA ${stanzaNumber}`, type, text: `${stanzaNumber}. `, note: "", notePosition: "right" };
   }
   if (type === "ritornello") {
-    return { label: "RITORNELLO", type, text: "R /: ", note: "" };
+    return { label: "RITORNELLO", type, text: "R /: ", note: "", notePosition: "right" };
   }
   if (type === "chorus") {
-    return { label: "CORO", type, text: "C /: ", note: "" };
+    return { label: "CORO", type, text: "C /: ", note: "", notePosition: "right" };
   }
   if (type === "bridge") {
-    return { label: "BRIDGE", type, text: "Bridge: ", note: "" };
+    return { label: "BRIDGE", type, text: "Bridge: ", note: "", notePosition: "right" };
   }
   if (type === "intro") {
-    return { label: "INTRO", type, text: "Intro: ", note: "" };
+    return { label: "INTRO", type, text: "Intro: ", note: "", notePosition: "right" };
   }
   if (type === "outro") {
-    return { label: "OUTRO", type, text: "Outro: ", note: "" };
+    return { label: "OUTRO", type, text: "Outro: ", note: "", notePosition: "right" };
   }
-  return { label: "SEZIONE", type: "other", text: "", note: "" };
+  return { label: "SEZIONE", type: "other", text: "", note: "", notePosition: "right" };
 }
 
 /**
@@ -339,6 +356,7 @@ export default function Home() {
   const [importTitle, setImportTitle] = useState("");
   const [importAuthor, setImportAuthor] = useState("");
   const [importKey, setImportKey] = useState("");
+  const [importCapoKey, setImportCapoKey] = useState("");
   const [importCapo, setImportCapo] = useState("");
   const [importText, setImportText] = useState("");
 
@@ -352,6 +370,7 @@ export default function Home() {
   const [editTitle, setEditTitle] = useState("");
   const [editAuthor, setEditAuthor] = useState("");
   const [editKey, setEditKey] = useState("");
+  const [editCapoKey, setEditCapoKey] = useState("");
   const [editCapo, setEditCapo] = useState("");
   const [editBlocks, setEditBlocks] = useState<EditSongBlock[]>([]);
   const [saving, setSaving] = useState(false);
@@ -755,12 +774,13 @@ export default function Home() {
   const handleImportSave = useCallback(async () => {
     setSaving(true);
     try {
-      await saveSong(importTitle, importAuthor, composeKeyWithCapo(importKey, importCapo), importText, importUrl || null);
+      await saveSong(importTitle, importAuthor, composeKeyWithCapo(importKey, importCapoKey, importCapo), importText, importUrl || null);
       showToast("Canzone salvata!");
       setScrapedSong(null);
       setImportUrl("");
       setImportText("");
       setImportKey("");
+      setImportCapoKey("");
       setImportCapo("");
       setImportTitle("");
       setImportAuthor("");
@@ -769,7 +789,7 @@ export default function Home() {
       setActiveTab("indice");
     } catch { showToast("Errore durante il salvataggio"); }
     setSaving(false);
-  }, [importTitle, importAuthor, importKey, importCapo, importText, importUrl, saveSong, showToast]);
+  }, [importTitle, importAuthor, importKey, importCapoKey, importCapo, importText, importUrl, saveSong, showToast]);
 
   // ─── Edit: start ───
   const startEdit = useCallback((song: Song) => {
@@ -778,6 +798,7 @@ export default function Home() {
     setEditAuthor(song.author);
     const parsedKey = splitKeyAndCapo(song.key);
     setEditKey(parsedKey.key);
+    setEditCapoKey(parsedKey.capoKey);
     setEditCapo(parsedKey.capo);
     setEditBlocks(parsed.length ? parsed : [createEditBlock("strofa", 1)]);
     setActiveTab("modifica");
@@ -790,7 +811,7 @@ export default function Home() {
         if (!text) return "";
 
         const note = block.note.trim();
-        return note ? `${text}\n${SECTION_NOTE_PREFIX} ${note}` : text;
+        return note ? `${text}\n@note-${block.notePosition}: ${note}` : text;
       })
       .filter((chunk) => chunk.length > 0)
       .join("\n\n");
@@ -806,6 +827,7 @@ export default function Home() {
         return {
           text: value,
           note: block.note,
+          notePosition: block.notePosition,
           type: meta.type === "other" ? block.type : meta.type,
           label: meta.label || block.label || `SEZIONE ${i + 1}`,
         };
@@ -816,6 +838,12 @@ export default function Home() {
   const updateEditBlockNote = useCallback((index: number, note: string) => {
     setEditBlocks((prev) =>
       prev.map((block, i) => (i === index ? { ...block, note } : block))
+    );
+  }, []);
+
+  const updateEditBlockNotePosition = useCallback((index: number, notePosition: SectionNotePosition) => {
+    setEditBlocks((prev) =>
+      prev.map((block, i) => (i === index ? { ...block, notePosition } : block))
     );
   }, []);
 
@@ -830,7 +858,7 @@ export default function Home() {
     setEditBlocks((prev) => {
       if (prev.length <= 1) {
         const fallback = prev[0] || createEditBlock("strofa", 1);
-        return [{ ...fallback, text: "", note: "" }];
+        return [{ ...fallback, text: "", note: "", notePosition: "right" }];
       }
       return prev.filter((_, i) => i !== index);
     });
@@ -856,14 +884,14 @@ export default function Home() {
 
     setSaving(true);
     try {
-      const normalizedKey = composeKeyWithCapo(editKey, editCapo);
+      const normalizedKey = composeKeyWithCapo(editKey, editCapoKey, editCapo);
       await updateSong(selectedSong.id, editTitle, editAuthor, normalizedKey, normalizedText);
       showToast("Modifiche salvate!");
       setSelectedSong({ ...selectedSong, title: editTitle, author: editAuthor, key: normalizedKey, text: normalizedText });
       setActiveTab("canzone");
     } catch { showToast("Errore durante il salvataggio"); }
     setSaving(false);
-  }, [selectedSong, editTitle, editAuthor, editKey, editCapo, editBlocks, composeEditText, updateSong, showToast]);
+  }, [selectedSong, editTitle, editAuthor, editKey, editCapoKey, editCapo, editBlocks, composeEditText, updateSong, showToast]);
 
   // ─── Edit: delete ───
   const handleDelete = useCallback(async () => {
@@ -1783,10 +1811,17 @@ export default function Home() {
                   </div>
 
                   {/* Key */}
-                  <div className="grid grid-cols-[minmax(0,1fr)_110px] gap-3">
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_110px]">
                     <div>
                       <label className="block text-xs font-semibold mb-1 muted">Tonalita</label>
                       <select value={importKey} onChange={(e) => setImportKey(e.target.value)} className="w-full px-3 py-2 rounded-lg border text-sm input-field">
+                        <option value="">Seleziona...</option>
+                        {ALL_KEYS.map((k) => <option key={k} value={k}>{k}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold mb-1 muted">Tonalita con capo</label>
+                      <select value={importCapoKey} onChange={(e) => setImportCapoKey(e.target.value)} className="w-full px-3 py-2 rounded-lg border text-sm input-field">
                         <option value="">Seleziona...</option>
                         {ALL_KEYS.map((k) => <option key={k} value={k}>{k}</option>)}
                       </select>
@@ -1827,7 +1862,7 @@ export default function Home() {
                           <div className="flex-1">
                             <h4 className="song-view-title text-xl">{importTitle}</h4>
                           </div>
-                          {composeKeyWithCapo(importKey, importCapo) && <span className="song-view-key">{composeKeyWithCapo(importKey, importCapo)}</span>}
+                          {composeKeyWithCapo(importKey, importCapoKey, importCapo) && <span className="song-view-key">{composeKeyWithCapo(importKey, importCapoKey, importCapo)}</span>}
                         </div>
                         <div className="song-text text-sm">
                           <SongSections text={importText} />
@@ -1863,10 +1898,17 @@ export default function Home() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-[minmax(0,1fr)_110px] gap-3 mb-5">
+              <div className="grid grid-cols-1 gap-3 mb-5 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_110px]">
                 <div>
                   <label className="block text-xs font-semibold mb-1 muted">Tonalita</label>
                   <select value={editKey} onChange={(e) => setEditKey(e.target.value)} className="w-full px-3 py-2 rounded-lg border text-sm input-field">
+                    <option value="">Seleziona...</option>
+                    {ALL_KEYS.map((k) => <option key={k} value={k}>{k}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold mb-1 muted">Tonalita con capo</label>
+                  <select value={editCapoKey} onChange={(e) => setEditCapoKey(e.target.value)} className="w-full px-3 py-2 rounded-lg border text-sm input-field">
                     <option value="">Seleziona...</option>
                     {ALL_KEYS.map((k) => <option key={k} value={k}>{k}</option>)}
                   </select>
@@ -1937,15 +1979,25 @@ export default function Home() {
                         placeholder="Inserisci il testo della sezione..."
                       />
                       <label className="block text-[11px] font-semibold muted mt-3 mb-1">
-                        Nota PDF a destra della sezione
+                        Nota PDF della sezione
                       </label>
-                      <input
-                        type="text"
-                        value={block.note}
-                        onChange={(e) => updateEditBlockNote(idx, e.target.value)}
-                        className="w-full rounded-lg border px-3 py-2 text-sm input-field"
-                        placeholder="Es. Ref x 2, solo donne, ripeti piano..."
-                      />
+                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_130px]">
+                        <input
+                          type="text"
+                          value={block.note}
+                          onChange={(e) => updateEditBlockNote(idx, e.target.value)}
+                          className="w-full rounded-lg border px-3 py-2 text-sm input-field"
+                          placeholder="Es. Ref x 2, solo donne, ripeti piano..."
+                        />
+                        <select
+                          value={block.notePosition}
+                          onChange={(e) => updateEditBlockNotePosition(idx, e.target.value as SectionNotePosition)}
+                          className="w-full rounded-lg border px-3 py-2 text-sm input-field"
+                        >
+                          <option value="right">A destra</option>
+                          <option value="bottom">Sotto</option>
+                        </select>
+                      </div>
                     </div>
                   ))}
                 </div>

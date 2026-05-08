@@ -86,11 +86,16 @@ interface SongLine {
 interface SongBlock {
   type: "stanza" | "refrain";
   lines: SongLine[];
+  bottomNote: string | null;
 }
 
-function parseSectionNoteLine(line: string): string | null {
-  const match = line.trim().match(/^@note:\s*(.+)$/i);
-  return match ? match[1].trim() : null;
+function parseSectionNoteLine(line: string): { text: string; position: "right" | "bottom" } | null {
+  const match = line.trim().match(/^@note(?:-(right|bottom))?:\s*(.+)$/i);
+  if (!match) return null;
+  return {
+    position: match[1]?.toLowerCase() === "bottom" ? "bottom" : "right",
+    text: match[2].trim(),
+  };
 }
 
 function parseSongBlocks(text: string): SongBlock[] {
@@ -100,10 +105,12 @@ function parseSongBlocks(text: string): SongBlock[] {
   for (const raw of rawBlocks) {
     const rawLines = raw.split("\n").map((l) => l.trimEnd());
     let sectionNote: string | null = null;
+    let bottomNote: string | null = null;
     const contentLines = rawLines.filter((line) => {
       const note = parseSectionNoteLine(line);
       if (note) {
-        sectionNote = note;
+        if (note.position === "bottom") bottomNote = note.text;
+        else sectionNote = note.text;
         return false;
       }
       return true;
@@ -116,9 +123,9 @@ function parseSongBlocks(text: string): SongBlock[] {
     }
 
     if (isRefrainOrChorus(firstLine)) {
-      blocks.push({ type: "refrain", lines });
+      blocks.push({ type: "refrain", lines, bottomNote });
     } else {
-      blocks.push({ type: "stanza", lines });
+      blocks.push({ type: "stanza", lines, bottomNote });
     }
   }
 
@@ -280,11 +287,19 @@ const s = StyleSheet.create({
     alignItems: "baseline",
   },
   noteOnSide: {
-    fontSize: 7,
+    fontSize: 8,
     fontFamily: "NotoSans",
     color: GRAY,
     flexShrink: 0,
     marginLeft: 6,
+  },
+  noteBelow: {
+    fontSize: 8,
+    fontFamily: "NotoSans",
+    color: GRAY,
+    fontStyle: "italic",
+    marginTop: 4,
+    paddingLeft: 30,
   },
   emptyLine: {
     height: 5,
@@ -349,7 +364,8 @@ function renderStanzaBlock(block: SongBlock, blockIdx: number): React.ReactEleme
   return React.createElement(
     View,
     { key: `block-${blockIdx}`, style: s.stanzaBlock, wrap: false } as Record<string, unknown>,
-    ...elements
+    ...elements,
+    block.bottomNote ? React.createElement(Text, { style: s.noteBelow }, `(${block.bottomNote})`) : null
   );
 }
 
@@ -378,7 +394,8 @@ function renderRefrainBlock(block: SongBlock, blockIdx: number): React.ReactElem
   return React.createElement(
     View,
     { key: `block-${blockIdx}`, style: s.refrainBlock, wrap: false } as Record<string, unknown>,
-    ...elements
+    ...elements,
+    block.bottomNote ? React.createElement(Text, { style: s.noteBelow }, `(${block.bottomNote})`) : null
   );
 }
 
