@@ -99,29 +99,61 @@ const DEFAULT_PDF_OPTIONS: PdfExportOptions = {
 };
 
 type SectionNotePosition = "right" | "bottom";
+type UnderlineColor = "blue" | "red" | "green" | "gold" | "black";
+
+const UNDERLINE_COLORS: Record<UnderlineColor, string> = {
+  blue: "#1a2e6e",
+  red: "#b42318",
+  green: "#1f7a4d",
+  gold: "#b7791f",
+  black: "#111111",
+};
 
 function isSectionNoteLine(line: string): boolean {
   return /^@note(?:-(?:right|bottom))?:\s*/i.test(line.trim());
 }
 
-function extractSectionNote(lines: string[]): { note: string; notePosition: SectionNotePosition; lines: string[] } {
+function extractSectionNote(lines: string[]): { note: string; notePosition: SectionNotePosition; noteBold: boolean; lines: string[] } {
   let note = "";
   let notePosition: SectionNotePosition = "right";
+  let noteBold = false;
   const visibleLines: string[] = [];
 
   lines.forEach((line) => {
     if (isSectionNoteLine(line)) {
-      const match = line.trim().match(/^@note(?:-(right|bottom))?:\s*(.+)$/i);
+      const match = line.trim().match(/^@note(?:-(right|bottom))?(?:-(bold))?:\s*(.+)$/i);
       if (match) {
         notePosition = match[1]?.toLowerCase() === "bottom" ? "bottom" : "right";
-        note = match[2].trim();
+        noteBold = match[2]?.toLowerCase() === "bold";
+        note = match[3].trim();
       }
     } else {
       visibleLines.push(line);
     }
   });
 
-  return { note, notePosition, lines: visibleLines };
+  return { note, notePosition, noteBold, lines: visibleLines };
+}
+
+function renderInlineMarkup(line: string): React.ReactNode[] {
+  const parts: React.ReactNode[] = [];
+  const pattern = /\[u=(blue|red|green|gold|black)\](.*?)\[\/u\]/gi;
+  let cursor = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = pattern.exec(line))) {
+    if (match.index > cursor) parts.push(line.slice(cursor, match.index));
+    const color = match[1].toLowerCase() as UnderlineColor;
+    parts.push(
+      <span key={`${match.index}-${color}`} style={{ color: UNDERLINE_COLORS[color], textDecoration: "underline", textDecorationColor: UNDERLINE_COLORS[color], textDecorationThickness: "2px" }}>
+        {match[2]}
+      </span>
+    );
+    cursor = match.index + match[0].length;
+  }
+
+  if (cursor < line.length) parts.push(line.slice(cursor));
+  return parts;
 }
 
 interface ParsedSection {
@@ -138,6 +170,7 @@ interface EditSongBlock {
   text: string;
   note: string;
   notePosition: SectionNotePosition;
+  noteBold: boolean;
 }
 
 function detectSectionMeta(firstLine: string): { label: string; type: SectionType; stanzaNumber?: number } {
@@ -184,6 +217,7 @@ function parseEditBlocks(text: string): EditSongBlock[] {
       text: blockText,
       note: extracted.note,
       notePosition: extracted.notePosition,
+      noteBold: extracted.noteBold,
     };
   });
 }
@@ -204,24 +238,24 @@ function getNextStanzaNumber(blocks: EditSongBlock[]): number {
 
 function createEditBlock(type: SectionType, stanzaNumber = 1): EditSongBlock {
   if (type === "strofa") {
-    return { label: `STROFA ${stanzaNumber}`, type, text: `${stanzaNumber}. `, note: "", notePosition: "right" };
+    return { label: `STROFA ${stanzaNumber}`, type, text: `${stanzaNumber}. `, note: "", notePosition: "right", noteBold: false };
   }
   if (type === "ritornello") {
-    return { label: "RITORNELLO", type, text: "R /: ", note: "", notePosition: "right" };
+    return { label: "RITORNELLO", type, text: "R /: ", note: "", notePosition: "right", noteBold: false };
   }
   if (type === "chorus") {
-    return { label: "CORO", type, text: "C /: ", note: "", notePosition: "right" };
+    return { label: "CORO", type, text: "C /: ", note: "", notePosition: "right", noteBold: false };
   }
   if (type === "bridge") {
-    return { label: "BRIDGE", type, text: "Bridge: ", note: "", notePosition: "right" };
+    return { label: "BRIDGE", type, text: "Bridge: ", note: "", notePosition: "right", noteBold: false };
   }
   if (type === "intro") {
-    return { label: "INTRO", type, text: "Intro: ", note: "", notePosition: "right" };
+    return { label: "INTRO", type, text: "Intro: ", note: "", notePosition: "right", noteBold: false };
   }
   if (type === "outro") {
-    return { label: "OUTRO", type, text: "Outro: ", note: "", notePosition: "right" };
+    return { label: "OUTRO", type, text: "Outro: ", note: "", notePosition: "right", noteBold: false };
   }
-  return { label: "SEZIONE", type: "other", text: "", note: "", notePosition: "right" };
+  return { label: "SEZIONE", type: "other", text: "", note: "", notePosition: "right", noteBold: false };
 }
 
 /**
@@ -302,7 +336,7 @@ function SongSections({ text }: { text: string }) {
           <div className="song-section-text">
             {section.lines.map((line, li) => (
               <div key={li} className={line.trim() === "" ? "song-empty-line" : "song-line"}>
-                {line}
+                {renderInlineMarkup(line)}
               </div>
             ))}
           </div>
@@ -811,7 +845,7 @@ export default function Home() {
         if (!text) return "";
 
         const note = block.note.trim();
-        return note ? `${text}\n@note-${block.notePosition}: ${note}` : text;
+        return note ? `${text}\n@note-${block.notePosition}${block.noteBold ? "-bold" : ""}: ${note}` : text;
       })
       .filter((chunk) => chunk.length > 0)
       .join("\n\n");
@@ -828,6 +862,7 @@ export default function Home() {
           text: value,
           note: block.note,
           notePosition: block.notePosition,
+          noteBold: block.noteBold,
           type: meta.type === "other" ? block.type : meta.type,
           label: meta.label || block.label || `SEZIONE ${i + 1}`,
         };
@@ -847,6 +882,12 @@ export default function Home() {
     );
   }, []);
 
+  const updateEditBlockNoteBold = useCallback((index: number, noteBold: boolean) => {
+    setEditBlocks((prev) =>
+      prev.map((block, i) => (i === index ? { ...block, noteBold } : block))
+    );
+  }, []);
+
   const addEditBlock = useCallback((type: SectionType = "strofa") => {
     setEditBlocks((prev) => {
       const nextStanza = getNextStanzaNumber(prev);
@@ -858,7 +899,7 @@ export default function Home() {
     setEditBlocks((prev) => {
       if (prev.length <= 1) {
         const fallback = prev[0] || createEditBlock("strofa", 1);
-        return [{ ...fallback, text: "", note: "", notePosition: "right" }];
+        return [{ ...fallback, text: "", note: "", notePosition: "right", noteBold: false }];
       }
       return prev.filter((_, i) => i !== index);
     });
@@ -1978,10 +2019,13 @@ export default function Home() {
                         className="edit-section-textarea w-full rounded-xl border px-3 py-2.5 text-sm leading-relaxed input-field resize-y"
                         placeholder="Inserisci il testo della sezione..."
                       />
+                      <div className="mt-2 rounded-lg border bg-white/60 p-2 text-[11px] leading-relaxed muted">
+                        Sottolinea nel PDF con <code>[u=blue]testo[/u]</code>. Colori: <code>blue</code>, <code>red</code>, <code>green</code>, <code>gold</code>, <code>black</code>.
+                      </div>
                       <label className="block text-[11px] font-semibold muted mt-3 mb-1">
                         Nota PDF della sezione
                       </label>
-                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_130px]">
+                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_130px_95px]">
                         <input
                           type="text"
                           value={block.note}
@@ -1997,6 +2041,14 @@ export default function Home() {
                           <option value="right">A destra</option>
                           <option value="bottom">Sotto</option>
                         </select>
+                        <label className="flex items-center justify-center gap-2 rounded-lg border px-3 py-2 text-sm font-semibold input-field">
+                          <input
+                            type="checkbox"
+                            checked={block.noteBold}
+                            onChange={(e) => updateEditBlockNoteBold(idx, e.target.checked)}
+                          />
+                          Bold
+                        </label>
                       </div>
                     </div>
                   ))}

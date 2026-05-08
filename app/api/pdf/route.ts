@@ -58,7 +58,7 @@ function isLikelySideNote(note: string): boolean {
   return /^(ref(?:ren)?|rit(?:ornello)?|coro|chorus|bis)\b|\bx\s*\d+\b|\b\d+\s*x\b/i.test(normalized);
 }
 
-function parseNote(line: string): { text: string; note: string | null } {
+function parseNote(line: string): SongLine {
   const trimmed = line.trimEnd();
   const suffixMatch = trimmed.match(/^(.+?)\s*\(([^)]+)\)\s*$/);
   if (suffixMatch) {
@@ -78,23 +78,63 @@ function parseNote(line: string): { text: string; note: string | null } {
   return { text: trimmed, note: null };
 }
 
+const UNDERLINE_COLORS: Record<string, string> = {
+  blue: "#1a2e6e",
+  red: "#b42318",
+  green: "#1f7a4d",
+  gold: "#b7791f",
+  black: "#111111",
+};
+
+function renderInlinePdfText(text: string, style: unknown): React.ReactElement {
+  const children: React.ReactElement[] = [];
+  const pattern = /\[u=(blue|red|green|gold|black)\](.*?)\[\/u\]/gi;
+  let cursor = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = pattern.exec(text))) {
+    if (match.index > cursor) {
+      children.push(React.createElement(Text, { key: `t-${cursor}` }, text.slice(cursor, match.index)));
+    }
+
+    const color = UNDERLINE_COLORS[match[1].toLowerCase()] || UNDERLINE_COLORS.blue;
+    children.push(
+      React.createElement(
+        Text,
+        { key: `u-${match.index}`, style: { color, textDecoration: "underline", textDecorationColor: color } },
+        match[2]
+      )
+    );
+    cursor = match.index + match[0].length;
+  }
+
+  if (cursor < text.length) {
+    children.push(React.createElement(Text, { key: `t-${cursor}` }, text.slice(cursor)));
+  }
+
+  return React.createElement(Text, { style } as Record<string, unknown>, ...children);
+}
+
 interface SongLine {
   text: string;
   note: string | null;
+  noteBold?: boolean;
 }
 
 interface SongBlock {
   type: "stanza" | "refrain";
   lines: SongLine[];
   bottomNote: string | null;
+  bottomNoteBold: boolean;
 }
 
-function parseSectionNoteLine(line: string): { text: string; position: "right" | "bottom" } | null {
-  const match = line.trim().match(/^@note(?:-(right|bottom))?:\s*(.+)$/i);
+function parseSectionNoteLine(line: string): { text: string; position: "right" | "bottom"; bold: boolean } | null {
+  const match = line.trim().match(/^@note(?:-(right|bottom))?(?:-(bold))?:\s*(.+)$/i);
   if (!match) return null;
   return {
     position: match[1]?.toLowerCase() === "bottom" ? "bottom" : "right",
-    text: match[2].trim(),
+    bold: match[2]?.toLowerCase() === "bold",
+    text: match[3].trim(),
   };
 }
 
@@ -105,12 +145,19 @@ function parseSongBlocks(text: string): SongBlock[] {
   for (const raw of rawBlocks) {
     const rawLines = raw.split("\n").map((l) => l.trimEnd());
     let sectionNote: string | null = null;
+    let sectionNoteBold = false;
     let bottomNote: string | null = null;
+    let bottomNoteBold = false;
     const contentLines = rawLines.filter((line) => {
       const note = parseSectionNoteLine(line);
       if (note) {
-        if (note.position === "bottom") bottomNote = note.text;
-        else sectionNote = note.text;
+        if (note.position === "bottom") {
+          bottomNote = note.text;
+          bottomNoteBold = note.bold;
+        } else {
+          sectionNote = note.text;
+          sectionNoteBold = note.bold;
+        }
         return false;
       }
       return true;
@@ -119,13 +166,13 @@ function parseSongBlocks(text: string): SongBlock[] {
     const lines = contentLines.map((l) => parseNote(l));
 
     if (sectionNote && lines[0] && !lines[0].note) {
-      lines[0] = { ...lines[0], note: sectionNote };
+      lines[0] = { ...lines[0], note: sectionNote, noteBold: sectionNoteBold };
     }
 
     if (isRefrainOrChorus(firstLine)) {
-      blocks.push({ type: "refrain", lines, bottomNote });
+      blocks.push({ type: "refrain", lines, bottomNote, bottomNoteBold });
     } else {
-      blocks.push({ type: "stanza", lines, bottomNote });
+      blocks.push({ type: "stanza", lines, bottomNote, bottomNoteBold });
     }
   }
 
@@ -293,11 +340,14 @@ const s = StyleSheet.create({
     flexShrink: 0,
     marginLeft: 6,
   },
+  noteBold: {
+    fontWeight: 700,
+    fontStyle: "normal",
+  },
   noteBelow: {
     fontSize: 8,
     fontFamily: "NotoSans",
     color: GRAY,
-    fontStyle: "italic",
     marginTop: 4,
     paddingLeft: 30,
   },
@@ -335,8 +385,8 @@ function renderStanzaBlock(block: SongBlock, blockIdx: number): React.ReactEleme
             View,
             { key: `l-${blockIdx}-${lineIdx}`, style: s.stanzaLineRow },
             React.createElement(Text, { style: s.stanzaNumber }, match[1]),
-            React.createElement(Text, { style: s.stanzaLineText }, match[2]),
-            note ? React.createElement(Text, { style: s.noteOnSide }, `(${note})`) : null
+            renderInlinePdfText(match[2], s.stanzaLineText),
+            note ? React.createElement(Text, { style: line.noteBold ? [s.noteOnSide, s.noteBold] : s.noteOnSide }, `(${note})`) : null
           )
         );
       } else {
@@ -344,8 +394,8 @@ function renderStanzaBlock(block: SongBlock, blockIdx: number): React.ReactEleme
           React.createElement(
             View,
             { key: `l-${blockIdx}-${lineIdx}`, style: s.stanzaLineRow },
-            React.createElement(Text, { style: s.stanzaLineText }, trimmed),
-            note ? React.createElement(Text, { style: s.noteOnSide }, `(${note})`) : null
+            renderInlinePdfText(trimmed, s.stanzaLineText),
+            note ? React.createElement(Text, { style: line.noteBold ? [s.noteOnSide, s.noteBold] : s.noteOnSide }, `(${note})`) : null
           )
         );
       }
@@ -354,8 +404,8 @@ function renderStanzaBlock(block: SongBlock, blockIdx: number): React.ReactEleme
         React.createElement(
           View,
           { key: `l-${blockIdx}-${lineIdx}`, style: s.stanzaLineRow },
-          React.createElement(Text, { style: s.stanzaContinuationLine }, trimmed),
-          note ? React.createElement(Text, { style: s.noteOnSide }, `(${note})`) : null
+          renderInlinePdfText(trimmed, s.stanzaContinuationLine),
+          note ? React.createElement(Text, { style: line.noteBold ? [s.noteOnSide, s.noteBold] : s.noteOnSide }, `(${note})`) : null
         )
       );
     }
@@ -365,7 +415,7 @@ function renderStanzaBlock(block: SongBlock, blockIdx: number): React.ReactEleme
     View,
     { key: `block-${blockIdx}`, style: s.stanzaBlock, wrap: false } as Record<string, unknown>,
     ...elements,
-    block.bottomNote ? React.createElement(Text, { style: s.noteBelow }, `(${block.bottomNote})`) : null
+    block.bottomNote ? React.createElement(Text, { style: block.bottomNoteBold ? [s.noteBelow, s.noteBold] : s.noteBelow }, `(${block.bottomNote})`) : null
   );
 }
 
@@ -385,8 +435,8 @@ function renderRefrainBlock(block: SongBlock, blockIdx: number): React.ReactElem
       React.createElement(
         View,
         { key: `l-${blockIdx}-${lineIdx}`, style: s.refrainLineRow },
-        React.createElement(Text, { style: s.refrainLine }, trimmed),
-        note ? React.createElement(Text, { style: s.noteOnSide }, `(${note})`) : null
+        renderInlinePdfText(trimmed, s.refrainLine),
+        note ? React.createElement(Text, { style: line.noteBold ? [s.noteOnSide, s.noteBold] : s.noteOnSide }, `(${note})`) : null
       )
     );
   });
@@ -395,7 +445,7 @@ function renderRefrainBlock(block: SongBlock, blockIdx: number): React.ReactElem
     View,
     { key: `block-${blockIdx}`, style: s.refrainBlock, wrap: false } as Record<string, unknown>,
     ...elements,
-    block.bottomNote ? React.createElement(Text, { style: s.noteBelow }, `(${block.bottomNote})`) : null
+    block.bottomNote ? React.createElement(Text, { style: block.bottomNoteBold ? [s.noteBelow, s.noteBold] : s.noteBelow }, `(${block.bottomNote})`) : null
   );
 }
 
