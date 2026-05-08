@@ -25,6 +25,25 @@ function generateId(): string {
     : Math.random().toString(36).slice(2);
 }
 
+function compareSongManualOrder(a: Song, b: Song): number {
+  const orderA = a.sort_order ?? Number.MAX_SAFE_INTEGER;
+  const orderB = b.sort_order ?? Number.MAX_SAFE_INTEGER;
+  if (orderA !== orderB) return orderA - orderB;
+  return a.title.localeCompare(b.title, "ro");
+}
+
+function normalizeSongs(rawSongs: Song[]): Song[] {
+  const ordered = [...rawSongs].sort(compareSongManualOrder);
+  return ordered.map((song, index) => ({
+    ...song,
+    sort_order: song.sort_order ?? index + 1,
+  }));
+}
+
+function getNextSortOrder(songs: Song[]): number {
+  return songs.reduce((max, song) => Math.max(max, song.sort_order ?? 0), 0) + 1;
+}
+
 interface ParsedSection {
   label: string;       // e.g. "STROFA 1", "RITORNELLO", "BRIDGE", ""
   type: "strofa" | "ritornello" | "bridge" | "intro" | "outro" | "chorus" | "other";
@@ -208,7 +227,6 @@ function SongSections({ text }: { text: string }) {
 export default function Home() {
   // State
   const [selectedUser, setSelectedUser] = useState<AppUser>(USERS[0]);
-  const [loginUser, setLoginUser] = useState<AppUser>(USERS[0]);
   const [activeTab, setActiveTab] = useState<AppTab>("indice");
   const [songs, setSongs] = useState<Song[]>([]);
   const [selectedSong, setSelectedSong] = useState<Song | null>(null);
@@ -221,7 +239,7 @@ export default function Home() {
 
   // Indice
   const [query, setQuery] = useState("");
-  const [sortMode, setSortMode] = useState<SortMode>("title");
+  const [sortMode, setSortMode] = useState<SortMode>("manual");
   const [filterKey, setFilterKey] = useState("");
   const [activeLetter, setActiveLetter] = useState("");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -262,6 +280,7 @@ export default function Home() {
   const [editKey, setEditKey] = useState("");
   const [editBlocks, setEditBlocks] = useState<EditSongBlock[]>([]);
   const [saving, setSaving] = useState(false);
+  const [reorderSaving, setReorderSaving] = useState(false);
 
   // Toast
   const [toast, setToast] = useState("");
@@ -291,7 +310,6 @@ export default function Home() {
         const found = USERS.find((u) => u.name === storedUser);
         if (found) {
           setSelectedUser(found);
-          setLoginUser(found);
         }
       }
       setIsUnlocked(unlocked);
@@ -347,7 +365,7 @@ export default function Home() {
     } finally {
       setAuthSubmitting(false);
     }
-  }, [authPassword, loginUser]);
+  }, [authPassword]);
 
   // ─── Load songs ───
   const loadSongs = useCallback(async () => {
@@ -355,22 +373,37 @@ export default function Home() {
     if (!sb) {
       const stored = localStorage.getItem("quaderno-songs");
       if (stored) {
-        try { setSongs(JSON.parse(stored)); } catch { /* ignore */ }
+        try { setSongs(normalizeSongs(JSON.parse(stored) as Song[])); } catch { /* ignore */ }
       }
       setLoading(false);
       return;
     }
     try {
-      const { data } = await sb.from("songs").select("*").order("title");
+      let data: Song[] | null = null;
+      const orderedByManual = await sb
+        .from("songs")
+        .select("*")
+        .order("sort_order", { ascending: true })
+        .order("title", { ascending: true });
+
+      if (orderedByManual.error) {
+        const fallback = await sb.from("songs").select("*").order("title", { ascending: true });
+        if (fallback.error) throw fallback.error;
+        data = fallback.data as Song[] | null;
+      } else {
+        data = orderedByManual.data as Song[] | null;
+      }
+
       if (data) {
-        setSongs(data);
-        localStorage.setItem("quaderno-songs", JSON.stringify(data));
+        const normalized = normalizeSongs(data);
+        setSongs(normalized);
+        localStorage.setItem("quaderno-songs", JSON.stringify(normalized));
       }
     } catch (err) {
       console.error("Error loading songs:", err);
       const stored = localStorage.getItem("quaderno-songs");
       if (stored) {
-        try { setSongs(JSON.parse(stored)); } catch { /* ignore */ }
+        try { setSongs(normalizeSongs(JSON.parse(stored) as Song[])); } catch { /* ignore */ }
       }
     }
     setLoading(false);
@@ -382,7 +415,7 @@ export default function Home() {
   useEffect(() => {
     if (selectedSong) {
       const fresh = songs.find((s) => s.id === selectedSong.id);
-      if (fresh && fresh.updated_at !== selectedSong.updated_at) {
+      if (fresh && (fresh.updated_at !== selectedSong.updated_at || fresh.sort_order !== selectedSong.sort_order)) {
         setSelectedSong(fresh);
       }
     }
@@ -392,17 +425,19 @@ export default function Home() {
   const saveSong = useCallback(
     async (title: string, author: string, key: string | null, text: string, sourceUrl: string | null) => {
       const sb = getSupabase();
+      const sortOrder = getNextSortOrder(songs);
       if (!sb) {
         const newSong: Song = {
           id: generateId(),
           title, author, key, text,
+          sort_order: sortOrder,
           source_url: sourceUrl,
           audio_url: null,
           owner: selectedUser.name,
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         };
-        const updated = [...songs, newSong];
+        const updated = normalizeSongs([...songs, newSong]);
         setSongs(updated);
         localStorage.setItem("quaderno-songs", JSON.stringify(updated));
         return newSong;
@@ -410,7 +445,7 @@ export default function Home() {
 
       const { data, error } = await sb
         .from("songs")
-        .insert({ title, author, key, text, source_url: sourceUrl, owner: selectedUser.name })
+        .insert({ title, author, key, text, sort_order: sortOrder, source_url: sourceUrl, owner: selectedUser.name })
         .select()
         .single();
 
@@ -426,9 +461,9 @@ export default function Home() {
     async (songId: string, title: string, author: string, key: string | null, text: string) => {
       const sb = getSupabase();
       if (!sb) {
-        const updated = songs.map((s) =>
+        const updated = normalizeSongs(songs.map((s) =>
           s.id === songId ? { ...s, title, author, key, text, updated_at: new Date().toISOString() } : s
-        );
+        ));
         setSongs(updated);
         localStorage.setItem("quaderno-songs", JSON.stringify(updated));
         return;
@@ -444,7 +479,7 @@ export default function Home() {
     async (songId: string) => {
       const sb = getSupabase();
       if (!sb) {
-        const updated = songs.filter((s) => s.id !== songId);
+        const updated = normalizeSongs(songs.filter((s) => s.id !== songId));
         setSongs(updated);
         localStorage.setItem("quaderno-songs", JSON.stringify(updated));
         return;
@@ -454,6 +489,51 @@ export default function Home() {
     },
     [songs, loadSongs]
   );
+
+  const moveSong = useCallback(async (songId: string, direction: "up" | "down") => {
+    const ordered = normalizeSongs(songs);
+    const fromIndex = ordered.findIndex((song) => song.id === songId);
+    if (fromIndex < 0) return;
+
+    const toIndex = direction === "up" ? fromIndex - 1 : fromIndex + 1;
+    if (toIndex < 0 || toIndex >= ordered.length) return;
+
+    const reordered = [...ordered];
+    const [moved] = reordered.splice(fromIndex, 1);
+    reordered.splice(toIndex, 0, moved);
+
+    const normalized = reordered.map((song, index) => ({
+      ...song,
+      sort_order: index + 1,
+    }));
+
+    setSongs(normalized);
+    localStorage.setItem("quaderno-songs", JSON.stringify(normalized));
+
+    const sb = getSupabase();
+    if (!sb) return;
+
+    setReorderSaving(true);
+    try {
+      const results = await Promise.all(
+        normalized.map((song, index) =>
+          sb.from("songs").update({ sort_order: index + 1 }).eq("id", song.id)
+        )
+      );
+
+      const failed = results.find((result) => result.error);
+      if (failed?.error) throw failed.error;
+
+      await loadSongs();
+      showToast("Ordine salvato");
+    } catch (error) {
+      console.error("Error reordering songs:", error);
+      showToast("Errore nel salvataggio dell'ordine");
+      await loadSongs();
+    } finally {
+      setReorderSaving(false);
+    }
+  }, [songs, loadSongs, showToast]);
 
   // ─── Audio recording ───
   const startRecording = useCallback(async () => {
@@ -801,7 +881,7 @@ export default function Home() {
 
   // ─── Filtered & sorted songs ───
   const filteredSongs = useMemo(() => {
-    let result = [...songs];
+    let result = normalizeSongs(songs);
     if (query.trim()) {
       const q = query.toLowerCase();
       result = result.filter(
@@ -812,6 +892,7 @@ export default function Home() {
     if (activeLetter) result = result.filter((s) => s.title.toUpperCase().startsWith(activeLetter));
 
     result.sort((a, b) => {
+      if (sortMode === "manual") return compareSongManualOrder(a, b);
       if (sortMode === "title") return a.title.localeCompare(b.title, "ro");
       if (sortMode === "author") return a.author.localeCompare(b.author, "ro");
       if (sortMode === "key") return (a.key || "").localeCompare(b.key || "");
@@ -830,6 +911,7 @@ export default function Home() {
   }, [songs]);
   const hasLiveSet = liveSongs.length > 1 && currentLiveIndex >= 0;
   const isSongFullscreen = isFullscreen && activeTab === "canzone" && !!selectedSong;
+  const canManualReorder = isAdmin && sortMode === "manual" && !selectMode && !query.trim() && !filterKey && !activeLetter;
 
   useEffect(() => {
     setLiveSetIds((prev) => prev.filter((id) => songById.has(id)));
@@ -1011,6 +1093,7 @@ export default function Home() {
                   {/* Filters */}
                   <div className="flex items-center gap-2 flex-wrap">
                     <select value={sortMode} onChange={(e) => setSortMode(e.target.value as SortMode)} className="px-3 py-1.5 rounded-lg border text-xs font-medium input-field">
+                      <option value="manual">Ordine PDF</option>
                       <option value="title">Titolo A-Z</option>
                       <option value="author">Autore A-Z</option>
                       <option value="key">Tonalita</option>
@@ -1032,6 +1115,13 @@ export default function Home() {
                       {selectMode ? "Annulla" : "Seleziona"}
                     </button>
                   </div>
+
+                  {sortMode === "manual" && isAdmin && (
+                    <p className="text-[11px] muted">
+                      Usa le frecce per salvare l&apos;ordine del PDF nel database.
+                      {(!canManualReorder || reorderSaving) ? " Disattiva filtri e ricerca per riordinare." : ""}
+                    </p>
+                  )}
 
                   {/* Alpha nav */}
                   {availableLetters.length > 3 && (
@@ -1090,31 +1180,61 @@ export default function Home() {
               ) : (
                 <div className="song-list">
                   {filteredSongs.map((song, idx) => (
-                    <button
+                    <div
                       key={song.id}
-                      onClick={() => {
-                        if (selectMode) {
-                          const next = new Set(selectedIds);
-                          if (next.has(song.id)) next.delete(song.id); else next.add(song.id);
-                          setSelectedIds(next);
-                        } else {
-                          setLiveSetIds(filteredSongs.map((s) => s.id));
-                          setSelectedSong(song);
-                          setActiveTab("canzone");
-                        }
-                      }}
                       className={cn("song-list-item", selectMode && selectedIds.has(song.id) && "selected")}
                     >
-                      <span className="song-list-num">{idx + 1}.</span>
-                      <span className="song-list-title">{song.title}</span>
-                      <span className="song-list-author">{song.author}</span>
-                      {song.key && <span className="song-list-key">{song.key}</span>}
-                      {selectMode && (
-                        <span className={cn("song-list-check", selectedIds.has(song.id) && "checked")}>
-                          {selectedIds.has(song.id) ? "\u2713" : ""}
-                        </span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (selectMode) {
+                            const next = new Set(selectedIds);
+                            if (next.has(song.id)) next.delete(song.id); else next.add(song.id);
+                            setSelectedIds(next);
+                          } else {
+                            setLiveSetIds(filteredSongs.map((s) => s.id));
+                            setSelectedSong(song);
+                            setActiveTab("canzone");
+                          }
+                        }}
+                        className="song-list-open"
+                      >
+                        <span className="song-list-num">{idx + 1}.</span>
+                        <span className="song-list-title">{song.title}</span>
+                        <span className="song-list-author">{song.author}</span>
+                        {song.key && <span className="song-list-key">{song.key}</span>}
+                        {selectMode && (
+                          <span className={cn("song-list-check", selectedIds.has(song.id) && "checked")}>
+                            {selectedIds.has(song.id) ? "\u2713" : ""}
+                          </span>
+                        )}
+                      </button>
+
+                      {canManualReorder && (
+                        <div className="song-list-actions">
+                          <button
+                            type="button"
+                            onClick={() => moveSong(song.id, "up")}
+                            disabled={idx === 0 || reorderSaving}
+                            className="song-list-order-btn"
+                            aria-label="Sposta su"
+                            title="Sposta su"
+                          >
+                            ↑
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => moveSong(song.id, "down")}
+                            disabled={idx === filteredSongs.length - 1 || reorderSaving}
+                            className="song-list-order-btn"
+                            aria-label="Sposta giu"
+                            title="Sposta giu"
+                          >
+                            ↓
+                          </button>
+                        </div>
                       )}
-                    </button>
+                    </div>
                   ))}
                 </div>
               )}

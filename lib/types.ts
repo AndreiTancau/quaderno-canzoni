@@ -23,6 +23,7 @@ export interface Song {
   author: string;
   key: string | null;
   text: string;
+  sort_order: number | null;
   source_url: string | null;
   audio_url: string | null;
   created_at: string;
@@ -46,7 +47,7 @@ export interface SearchResult {
 
 export type AppTab = "indice" | "canzone" | "importa" | "modifica";
 
-export type SortMode = "title" | "author" | "key";
+export type SortMode = "manual" | "title" | "author" | "key";
 
 export const ALL_KEYS = [
   "Do", "Do#", "Reb", "Re", "Re#", "Mib", "Mi", "Fa", "Fa#",

@@ -53,12 +53,28 @@ function isStanzaStart(line: string): boolean {
   return /^\d+\.?\s/.test(line.trim());
 }
 
+function isLikelySideNote(note: string): boolean {
+  const normalized = note.trim();
+  return /^(ref(?:ren)?|rit(?:ornello)?|coro|chorus|bis)\b|\bx\s*\d+\b|\b\d+\s*x\b/i.test(normalized);
+}
+
 function parseNote(line: string): { text: string; note: string | null } {
   const trimmed = line.trimEnd();
-  const match = trimmed.match(/^(.+?)\s*\(([^)]+)\)\s*$/);
-  if (match) {
-    return { text: match[1].trimEnd(), note: match[2].trim() };
+  const suffixMatch = trimmed.match(/^(.+?)\s*\(([^)]+)\)\s*$/);
+  if (suffixMatch) {
+    return { text: suffixMatch[1].trimEnd(), note: suffixMatch[2].trim() };
   }
+
+  const prefixMatch = trimmed.match(/^\(([^)]+)\)\s*(.+)$/);
+  if (prefixMatch && isLikelySideNote(prefixMatch[1])) {
+    return { text: prefixMatch[2].trimEnd(), note: prefixMatch[1].trim() };
+  }
+
+  const prefixLabelMatch = trimmed.match(/^((?:ref(?:ren)?|rit(?:ornello)?|coro|chorus|bis)(?:\s*x\s*\d+|\s*\d+\s*x)?)\s*[:\-]\s*(.+)$/i);
+  if (prefixLabelMatch) {
+    return { text: prefixLabelMatch[2].trimEnd(), note: prefixLabelMatch[1].trim() };
+  }
+
   return { text: trimmed, note: null };
 }
 

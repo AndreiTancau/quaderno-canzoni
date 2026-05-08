@@ -156,6 +156,43 @@ body {
   background: transparent;
   border-radius: 0;
 }
+.song-list-open {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+  min-width: 0;
+  width: 100%;
+  background: transparent;
+  border: none;
+  padding: 0;
+  text-align: left;
+  color: inherit;
+  cursor: pointer;
+}
+.song-list-actions {
+  display: flex;
+  gap: 6px;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+.song-list-order-btn {
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--card-border);
+  border-radius: 8px;
+  background: var(--card-bg);
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.song-list-order-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
 .song-list-item:first-child {
   border-top: 1px solid var(--separator);
 }
@@ -735,6 +772,15 @@ body {
     align-items: center;
     gap: 4px 10px;
     padding: 12px 14px;
+  }
+  .song-list-open {
+    flex-wrap: wrap;
+    gap: 4px 10px;
+  }
+  .song-list-actions {
+    width: 100%;
+    justify-content: flex-end;
+    padding-left: 30px;
   }
   .song-list-num {
     width: auto;
