@@ -117,6 +117,12 @@ interface SongLine {
 interface SongBlock {
   type: "stanza" | "refrain";
   lines: SongLine[];
+  note: string | null;
+}
+
+function parseSectionNoteLine(line: string): string | null {
+  const match = line.trim().match(/^@note:\s*(.+)$/i);
+  return match ? match[1].trim() : null;
 }
 
 interface PdfOptions {
@@ -152,13 +158,23 @@ function parseSongBlocks(text: string): SongBlock[] {
 
   for (const raw of rawBlocks) {
     const rawLines = raw.split("\n").map((l) => l.trimEnd());
-    const firstLine = rawLines[0]?.trim() || "";
-    const lines = rawLines.map((l) => parseNote(l));
+    let blockNote: string | null = null;
+    const contentLines = rawLines.filter((line) => {
+      const note = parseSectionNoteLine(line);
+      if (note) {
+        blockNote = note;
+        return false;
+      }
+      return true;
+    });
+
+    const firstLine = contentLines[0]?.trim() || "";
+    const lines = contentLines.map((l) => parseNote(l));
 
     if (isRefrainOrChorus(firstLine)) {
-      blocks.push({ type: "refrain", lines });
+      blocks.push({ type: "refrain", lines, note: blockNote });
     } else {
-      blocks.push({ type: "stanza", lines });
+      blocks.push({ type: "stanza", lines, note: blockNote });
     }
   }
 
@@ -352,15 +368,19 @@ function createStyles(options: ResolvedPdfOptions) {
 
 function renderStanzaBlock(block: SongBlock, blockIdx: number, styles: ReturnType<typeof createStyles>): React.ReactElement {
   const elements: React.ReactElement[] = [];
+  let sectionNoteRendered = false;
 
   block.lines.forEach((line, lineIdx) => {
-    const { text: trimmed, note } = line;
+    const { text: trimmed } = line;
     if (trimmed === "") {
       elements.push(
         React.createElement(View, { key: `e-${blockIdx}-${lineIdx}`, style: styles.emptyLine })
       );
       return;
     }
+
+    const note = line.note || (!sectionNoteRendered ? block.note : null);
+    if (note) sectionNoteRendered = true;
 
     if (lineIdx === 0 && isStanzaStart(trimmed)) {
       const match = trimmed.match(/^(\d+\.?\s*)(.*)/);
@@ -409,15 +429,19 @@ function renderStanzaBlock(block: SongBlock, blockIdx: number, styles: ReturnTyp
 
 function renderRefrainBlock(block: SongBlock, blockIdx: number, styles: ReturnType<typeof createStyles>): React.ReactElement {
   const elements: React.ReactElement[] = [];
+  let sectionNoteRendered = false;
 
   block.lines.forEach((line, lineIdx) => {
-    const { text: trimmed, note } = line;
+    const { text: trimmed } = line;
     if (trimmed === "") {
       elements.push(
         React.createElement(View, { key: `e-${blockIdx}-${lineIdx}`, style: styles.emptyLine })
       );
       return;
     }
+
+    const note = line.note || (!sectionNoteRendered ? block.note : null);
+    if (note) sectionNoteRendered = true;
 
     elements.push(
       React.createElement(

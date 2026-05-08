@@ -73,6 +73,27 @@ const DEFAULT_PDF_OPTIONS: PdfExportOptions = {
   noteSize: 7,
 };
 
+const SECTION_NOTE_PREFIX = "@note:";
+
+function isSectionNoteLine(line: string): boolean {
+  return /^@note:\s*/i.test(line.trim());
+}
+
+function extractSectionNote(lines: string[]): { note: string; lines: string[] } {
+  let note = "";
+  const visibleLines: string[] = [];
+
+  lines.forEach((line) => {
+    if (isSectionNoteLine(line)) {
+      note = line.replace(/^@note:\s*/i, "").trim();
+    } else {
+      visibleLines.push(line);
+    }
+  });
+
+  return { note, lines: visibleLines };
+}
+
 interface ParsedSection {
   label: string;       // e.g. "STROFA 1", "RITORNELLO", "BRIDGE", ""
   type: "strofa" | "ritornello" | "bridge" | "intro" | "outro" | "chorus" | "other";
@@ -85,6 +106,7 @@ interface EditSongBlock {
   label: string;
   type: SectionType;
   text: string;
+  note: string;
 }
 
 function detectSectionMeta(firstLine: string): { label: string; type: SectionType; stanzaNumber?: number } {
@@ -120,13 +142,16 @@ function parseEditBlocks(text: string): EditSongBlock[] {
   const blocks = text.split(/\n\s*\n/).filter((b) => b.trim());
   return blocks.map((block, index) => {
     const trimmed = block.trim();
-    const firstLine = trimmed.split("\n")[0]?.trim() || "";
+    const extracted = extractSectionNote(trimmed.split("\n"));
+    const blockText = extracted.lines.join("\n").trim();
+    const firstLine = blockText.split("\n")[0]?.trim() || "";
     const meta = detectSectionMeta(firstLine);
 
     return {
       label: meta.label || `SEZIONE ${index + 1}`,
       type: meta.type,
-      text: trimmed,
+      text: blockText,
+      note: extracted.note,
     };
   });
 }
@@ -147,24 +172,24 @@ function getNextStanzaNumber(blocks: EditSongBlock[]): number {
 
 function createEditBlock(type: SectionType, stanzaNumber = 1): EditSongBlock {
   if (type === "strofa") {
-    return { label: `STROFA ${stanzaNumber}`, type, text: `${stanzaNumber}. ` };
+    return { label: `STROFA ${stanzaNumber}`, type, text: `${stanzaNumber}. `, note: "" };
   }
   if (type === "ritornello") {
-    return { label: "RITORNELLO", type, text: "R /: " };
+    return { label: "RITORNELLO", type, text: "R /: ", note: "" };
   }
   if (type === "chorus") {
-    return { label: "CORO", type, text: "C /: " };
+    return { label: "CORO", type, text: "C /: ", note: "" };
   }
   if (type === "bridge") {
-    return { label: "BRIDGE", type, text: "Bridge: " };
+    return { label: "BRIDGE", type, text: "Bridge: ", note: "" };
   }
   if (type === "intro") {
-    return { label: "INTRO", type, text: "Intro: " };
+    return { label: "INTRO", type, text: "Intro: ", note: "" };
   }
   if (type === "outro") {
-    return { label: "OUTRO", type, text: "Outro: " };
+    return { label: "OUTRO", type, text: "Outro: ", note: "" };
   }
-  return { label: "SEZIONE", type: "other", text: "" };
+  return { label: "SEZIONE", type: "other", text: "", note: "" };
 }
 
 /**
@@ -181,34 +206,38 @@ function parseSections(text: string): ParsedSection[] {
 
   for (const block of blocks) {
     const trimmed = block.trim();
-    const firstLine = trimmed.split("\n")[0].trim();
+    const extracted = extractSectionNote(trimmed.split("\n"));
+    const visibleBlock = extracted.lines.join("\n").trim();
+    if (!visibleBlock) continue;
+
+    const firstLine = visibleBlock.split("\n")[0].trim();
     const meta = detectSectionMeta(firstLine);
 
     const label = meta.label;
     const type: ParsedSection["type"] = meta.type;
-    let content = trimmed;
+    let content = visibleBlock;
 
     if (type === "strofa") {
-      content = trimmed.replace(/^(\d+\.\s*|strofa\s*\d*\s*:?\s*)/i, "");
+      content = visibleBlock.replace(/^(\d+\.\s*|strofa\s*\d*\s*:?\s*)/i, "");
     }
     else if (type === "ritornello") {
-      content = trimmed
+      content = visibleBlock
         .replace(/^(R\s*\/?:|ritornello\s*:?)\s*/i, "")
         .replace(/\s*:\/\s*$/, "");
     }
     else if (type === "chorus") {
-      content = trimmed
+      content = visibleBlock
         .replace(/^(C\s*\/?:|coro\s*:?|chorus\s*:?)\s*/i, "")
         .replace(/\s*:\/\s*$/, "");
     }
     else if (type === "bridge") {
-      content = trimmed.replace(/^bridge\s*:?\s*/i, "");
+      content = visibleBlock.replace(/^bridge\s*:?\s*/i, "");
     }
     else if (type === "intro") {
-      content = trimmed.replace(/^intro\s*:?\s*/i, "");
+      content = visibleBlock.replace(/^intro\s*:?\s*/i, "");
     }
     else if (type === "outro") {
-      content = trimmed.replace(/^outro\s*:?\s*/i, "");
+      content = visibleBlock.replace(/^outro\s*:?\s*/i, "");
     }
 
     sections.push({
@@ -733,7 +762,13 @@ export default function Home() {
 
   const composeEditText = useCallback((blocks: EditSongBlock[]) => {
     return blocks
-      .map((block) => block.text.trim())
+      .map((block) => {
+        const text = block.text.trim();
+        if (!text) return "";
+
+        const note = block.note.trim();
+        return note ? `${text}\n${SECTION_NOTE_PREFIX} ${note}` : text;
+      })
       .filter((chunk) => chunk.length > 0)
       .join("\n\n");
   }, []);
@@ -747,10 +782,17 @@ export default function Home() {
         const meta = detectSectionMeta(firstLine);
         return {
           text: value,
+          note: block.note,
           type: meta.type === "other" ? block.type : meta.type,
           label: meta.label || block.label || `SEZIONE ${i + 1}`,
         };
       })
+    );
+  }, []);
+
+  const updateEditBlockNote = useCallback((index: number, note: string) => {
+    setEditBlocks((prev) =>
+      prev.map((block, i) => (i === index ? { ...block, note } : block))
     );
   }, []);
 
@@ -765,7 +807,7 @@ export default function Home() {
     setEditBlocks((prev) => {
       if (prev.length <= 1) {
         const fallback = prev[0] || createEditBlock("strofa", 1);
-        return [{ ...fallback, text: "" }];
+        return [{ ...fallback, text: "", note: "" }];
       }
       return prev.filter((_, i) => i !== index);
     });
@@ -1763,9 +1805,16 @@ export default function Home() {
                         className="edit-section-textarea w-full rounded-xl border px-3 py-2.5 text-sm leading-relaxed input-field resize-y"
                         placeholder="Inserisci il testo della sezione..."
                       />
-                      {idx === 0 && (
-                        <p className="text-[11px] muted mt-2">Per le note laterali nel PDF usa <code>(Ref x 2) Testo</code>, <code>Testo (Ref x 2)</code> o <code>Testo - Ref x 2</code>.</p>
-                      )}
+                      <label className="block text-[11px] font-semibold muted mt-3 mb-1">
+                        Nota PDF a destra della sezione
+                      </label>
+                      <input
+                        type="text"
+                        value={block.note}
+                        onChange={(e) => updateEditBlockNote(idx, e.target.value)}
+                        className="w-full rounded-lg border px-3 py-2 text-sm input-field"
+                        placeholder="Es. Ref x 2, solo donne, ripeti piano..."
+                      />
                     </div>
                   ))}
                 </div>
