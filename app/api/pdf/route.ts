@@ -290,15 +290,12 @@ function createStyles(options: ResolvedPdfOptions) {
     stanzaBlock: {
       marginBottom: 12,
     },
-    blockRow: {
-      flexDirection: "row",
-      alignItems: "flex-start",
-      width: "100%",
+    blockWrapper: {
+      position: "relative",
       marginBottom: 12,
     },
-    blockMain: {
-      flex: 1,
-      minWidth: 0,
+    blockContentWithNote: {
+      paddingRight: 66,
     },
     lyricRow: {
       flexDirection: "row",
@@ -353,13 +350,14 @@ function createStyles(options: ResolvedPdfOptions) {
       flex: 1,
     },
     noteOnSide: {
+      position: "absolute",
+      top: 1,
+      right: 0,
       fontSize: options.noteSize,
       fontFamily: options.fontFamily,
       color: GRAY,
       width: 54,
-      marginLeft: 8,
       textAlign: "right",
-      paddingTop: 2,
     },
     emptyLine: {
       height: 5,
@@ -426,8 +424,12 @@ function renderStanzaBlock(block: SongBlock, blockIdx: number, styles: ReturnTyp
 
   return React.createElement(
     View,
-    { key: `block-${blockIdx}`, style: styles.blockRow, wrap: false } as Record<string, unknown>,
-    React.createElement(View, { style: styles.blockMain }, ...elements),
+    { key: `block-${blockIdx}`, style: styles.blockWrapper, wrap: false } as Record<string, unknown>,
+    React.createElement(
+      View,
+      { style: sideNote ? [styles.stanzaBlock, styles.blockContentWithNote] : styles.stanzaBlock },
+      ...elements
+    ),
     sideNote ? React.createElement(Text, { style: styles.noteOnSide }, `(${sideNote})`) : null
   );
 }
@@ -456,8 +458,12 @@ function renderRefrainBlock(block: SongBlock, blockIdx: number, styles: ReturnTy
 
   return React.createElement(
     View,
-    { key: `block-${blockIdx}`, style: [styles.blockRow, styles.refrainBlock], wrap: false } as Record<string, unknown>,
-    React.createElement(View, { style: styles.blockMain }, ...elements),
+    { key: `block-${blockIdx}`, style: styles.blockWrapper, wrap: false } as Record<string, unknown>,
+    React.createElement(
+      View,
+      { style: sideNote ? [styles.refrainBlock, styles.blockContentWithNote] : styles.refrainBlock },
+      ...elements
+    ),
     sideNote ? React.createElement(Text, { style: styles.noteOnSide }, `(${sideNote})`) : null
   );
 }
