@@ -894,6 +894,34 @@ export default function Home() {
     [songs, showToast, pdfPendingIds, pdfTitle, pdfOptions]
   );
 
+  const pdfPreviewSongs = useMemo(() => {
+    let previewSongs = pdfPendingIds
+      .map((id) => songs.find((s) => s.id === id))
+      .filter((song): song is Song => Boolean(song));
+
+    if (pdfOptions.order !== "current") {
+      previewSongs = [...previewSongs].sort((a, b) => compareSongsByOrder(pdfOptions.order, a, b));
+    }
+
+    return previewSongs;
+  }, [pdfPendingIds, songs, pdfOptions.order]);
+
+  const movePdfPreviewSong = useCallback((songId: string, direction: "up" | "down") => {
+    setPdfOptions((prev) => ({ ...prev, order: "current" }));
+    setPdfPendingIds((prev) => {
+      const fromIndex = prev.indexOf(songId);
+      if (fromIndex < 0) return prev;
+
+      const toIndex = direction === "up" ? fromIndex - 1 : fromIndex + 1;
+      if (toIndex < 0 || toIndex >= prev.length) return prev;
+
+      const next = [...prev];
+      const [moved] = next.splice(fromIndex, 1);
+      next.splice(toIndex, 0, moved);
+      return next;
+    });
+  }, []);
+
   const songById = useMemo(() => new Map(songs.map((s) => [s.id, s])), [songs]);
 
   const liveSongs = useMemo(() => {
@@ -1840,98 +1868,158 @@ export default function Home() {
 
           {/* ════════════ PDF TITLE MODAL ════════════ */}
           {pdfModalOpen && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 animate-fade-in" onClick={() => setPdfModalOpen(false)}>
-              <div className="bg-white rounded-2xl shadow-xl w-full max-w-xl mx-4 p-6 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-                <h3 className="text-lg font-bold mb-4">Esporta PDF</h3>
-                <label className="block text-sm font-medium mb-1.5 muted">Titolo del documento</label>
-                <input
-                  type="text"
-                  value={pdfTitle}
-                  onChange={(e) => setPdfTitle(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === "Enter") doExportPdf(); }}
-                  className="w-full rounded-xl border px-3 py-2.5 text-sm input-field mb-5"
-                  placeholder="Quaderno Canzoni"
-                  autoFocus
-                />
-                <div className="grid gap-4 sm:grid-cols-2 mb-5">
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-3 sm:p-6 animate-fade-in" onClick={() => setPdfModalOpen(false)}>
+              <div className="w-full max-w-6xl max-h-[92vh] overflow-hidden rounded-[28px] bg-[#f7f3ea] shadow-2xl border border-black/10" onClick={(e) => e.stopPropagation()}>
+                <div className="flex items-center justify-between gap-4 border-b border-black/10 px-5 py-4 sm:px-7">
                   <div>
-                    <label className="block text-sm font-medium mb-1.5 muted">Ordine canzoni</label>
-                    <select
-                      value={pdfOptions.order}
-                      onChange={(e) => setPdfOptions((prev) => ({ ...prev, order: e.target.value as PdfOrderMode }))}
-                      className="w-full rounded-xl border px-3 py-2.5 text-sm input-field"
-                    >
-                      <option value="current">Ordine attuale</option>
-                      <option value="manual">Ordine PDF salvato</option>
-                      <option value="title">Titolo A-Z</option>
-                      <option value="author">Autore A-Z</option>
-                      <option value="key">Tonalita</option>
-                    </select>
+                    <p className="text-[11px] font-bold tracking-[0.22em] uppercase muted">Anteprima export</p>
+                    <h3 className="text-xl sm:text-2xl font-bold tracking-tight">Esporta PDF</h3>
                   </div>
-                  <div>
-                    <label className="block text-sm font-medium mb-1.5 muted">Font</label>
-                    <select
-                      value={pdfOptions.fontFamily}
-                      onChange={(e) => setPdfOptions((prev) => ({ ...prev, fontFamily: e.target.value as PdfFontFamily }))}
-                      className="w-full rounded-xl border px-3 py-2.5 text-sm input-field"
-                    >
-                      <option value="sans">Noto Sans</option>
-                      <option value="serif">Noto Serif</option>
-                    </select>
-                  </div>
+                  <button
+                    onClick={() => setPdfModalOpen(false)}
+                    className="h-10 w-10 rounded-full border bg-white/70 text-lg font-bold hover:bg-white transition-colors"
+                    aria-label="Chiudi"
+                  >
+                    ×
+                  </button>
                 </div>
 
-                <div className="grid gap-3 sm:grid-cols-2 mb-5">
-                  <label className="block rounded-xl border p-3">
-                    <span className="block text-sm font-medium mb-1 muted">Titolo</span>
+                <div className="grid max-h-[calc(92vh-138px)] grid-cols-1 overflow-y-auto lg:grid-cols-[360px_minmax(0,1fr)]">
+                  <aside className="border-b border-black/10 bg-white/55 p-5 lg:border-b-0 lg:border-r lg:p-6">
+                    <label className="block text-sm font-semibold mb-1.5 muted">Titolo del documento</label>
                     <input
-                      type="range"
-                      min="12"
-                      max="22"
-                      value={pdfOptions.titleSize}
-                      onChange={(e) => setPdfOptions((prev) => ({ ...prev, titleSize: Number(e.target.value) }))}
-                      className="w-full"
+                      type="text"
+                      value={pdfTitle}
+                      onChange={(e) => setPdfTitle(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === "Enter") doExportPdf(); }}
+                      className="w-full rounded-xl border px-3 py-2.5 text-sm input-field mb-5"
+                      placeholder="Quaderno Canzoni"
+                      autoFocus
                     />
-                    <span className="text-xs muted">{pdfOptions.titleSize} pt</span>
-                  </label>
-                  <label className="block rounded-xl border p-3">
-                    <span className="block text-sm font-medium mb-1 muted">Testo strofe</span>
-                    <input
-                      type="range"
-                      min="8"
-                      max="14"
-                      value={pdfOptions.bodySize}
-                      onChange={(e) => setPdfOptions((prev) => ({ ...prev, bodySize: Number(e.target.value) }))}
-                      className="w-full"
-                    />
-                    <span className="text-xs muted">{pdfOptions.bodySize} pt</span>
-                  </label>
-                  <label className="block rounded-xl border p-3">
-                    <span className="block text-sm font-medium mb-1 muted">Ritornello</span>
-                    <input
-                      type="range"
-                      min="8"
-                      max="16"
-                      value={pdfOptions.refrainSize}
-                      onChange={(e) => setPdfOptions((prev) => ({ ...prev, refrainSize: Number(e.target.value) }))}
-                      className="w-full"
-                    />
-                    <span className="text-xs muted">{pdfOptions.refrainSize} pt</span>
-                  </label>
-                  <label className="block rounded-xl border p-3">
-                    <span className="block text-sm font-medium mb-1 muted">Note a destra</span>
-                    <input
-                      type="range"
-                      min="6"
-                      max="12"
-                      value={pdfOptions.noteSize}
-                      onChange={(e) => setPdfOptions((prev) => ({ ...prev, noteSize: Number(e.target.value) }))}
-                      className="w-full"
-                    />
-                    <span className="text-xs muted">{pdfOptions.noteSize} pt</span>
-                  </label>
+
+                    <div className="space-y-4">
+                      <div>
+                        <label className="block text-sm font-semibold mb-1.5 muted">Ordine canzoni</label>
+                        <select
+                          value={pdfOptions.order}
+                          onChange={(e) => setPdfOptions((prev) => ({ ...prev, order: e.target.value as PdfOrderMode }))}
+                          className="w-full rounded-xl border px-3 py-2.5 text-sm input-field"
+                        >
+                          <option value="current">Ordine anteprima</option>
+                          <option value="manual">Ordine PDF salvato</option>
+                          <option value="title">Titolo A-Z</option>
+                          <option value="author">Autore A-Z</option>
+                          <option value="key">Tonalita</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-semibold mb-1.5 muted">Font</label>
+                        <select
+                          value={pdfOptions.fontFamily}
+                          onChange={(e) => setPdfOptions((prev) => ({ ...prev, fontFamily: e.target.value as PdfFontFamily }))}
+                          className="w-full rounded-xl border px-3 py-2.5 text-sm input-field"
+                        >
+                          <option value="sans">Noto Sans</option>
+                          <option value="serif">Noto Serif</option>
+                        </select>
+                      </div>
+
+                      {[
+                        ["titleSize", "Titolo", 12, 22],
+                        ["bodySize", "Testo strofe", 8, 14],
+                        ["refrainSize", "Ritornello", 8, 16],
+                        ["noteSize", "Note a destra", 6, 12],
+                      ].map(([key, label, min, max]) => (
+                        <label key={key} className="block rounded-2xl border bg-white/70 p-3">
+                          <span className="flex justify-between text-sm font-semibold muted">
+                            <span>{label}</span>
+                            <span>{pdfOptions[key as keyof PdfExportOptions]} pt</span>
+                          </span>
+                          <input
+                            type="range"
+                            min={min}
+                            max={max}
+                            value={pdfOptions[key as keyof PdfExportOptions] as number}
+                            onChange={(e) => setPdfOptions((prev) => ({ ...prev, [key]: Number(e.target.value) }))}
+                            className="mt-2 w-full"
+                          />
+                        </label>
+                      ))}
+                    </div>
+                  </aside>
+
+                  <section className="p-4 sm:p-6 lg:p-8">
+                    <div className="mx-auto max-w-2xl rounded-sm bg-white px-8 py-10 shadow-[0_18px_60px_rgba(30,24,12,0.18)] ring-1 ring-black/5 sm:px-12">
+                      <div className="mb-8 text-center">
+                        <p className="text-[10px] font-bold uppercase tracking-[0.28em] text-[#9a7d4f]">Preview PDF</p>
+                        <h4
+                          className="mt-2 font-bold text-[#1a2e6e]"
+                          style={{
+                            fontFamily: pdfOptions.fontFamily === "serif" ? "Georgia, serif" : "ui-sans-serif, system-ui",
+                            fontSize: `${pdfOptions.titleSize + 6}px`,
+                          }}
+                        >
+                          {pdfTitle || "Quaderno Canzoni"}
+                        </h4>
+                        <p className="mt-2 text-xs muted">{pdfPreviewSongs.length} canzoni</p>
+                      </div>
+
+                      <div className="space-y-3">
+                        {pdfPreviewSongs.map((song, idx) => (
+                          <div key={song.id} className="group grid grid-cols-[36px_minmax(0,1fr)_auto] items-center gap-3 rounded-xl border border-black/10 bg-[#fbfaf7] px-3 py-2.5">
+                            <span className="text-right text-xs font-bold text-[#9a7d4f]">{idx + 1}.</span>
+                            <div className="min-w-0">
+                              <p
+                                className="truncate font-bold text-[#1a2e6e]"
+                                style={{
+                                  fontFamily: pdfOptions.fontFamily === "serif" ? "Georgia, serif" : "ui-sans-serif, system-ui",
+                                  fontSize: `${Math.max(12, pdfOptions.titleSize - 2)}px`,
+                                }}
+                              >
+                                {song.title}
+                              </p>
+                              <p
+                                className="truncate text-black/75"
+                                style={{ fontSize: `${pdfOptions.bodySize}px` }}
+                              >
+                                {song.author || "Senza autore"}{song.key ? ` · ${song.key}` : ""}
+                              </p>
+                            </div>
+                            <div className="flex gap-1 opacity-100 sm:opacity-0 sm:transition-opacity sm:group-hover:opacity-100">
+                              <button
+                                type="button"
+                                onClick={() => movePdfPreviewSong(song.id, "up")}
+                                disabled={idx === 0}
+                                className="h-8 w-8 rounded-lg border bg-white text-sm font-bold disabled:opacity-35"
+                                title="Sposta su"
+                              >
+                                ↑
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => movePdfPreviewSong(song.id, "down")}
+                                disabled={idx === pdfPreviewSongs.length - 1}
+                                className="h-8 w-8 rounded-lg border bg-white text-sm font-bold disabled:opacity-35"
+                                title="Sposta giu"
+                              >
+                                ↓
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+
+                      <div className="mt-8 rounded-xl border border-dashed border-black/20 bg-[#faf7ef] p-4">
+                        <p className="font-bold text-[#1a2e6e]" style={{ fontSize: `${pdfOptions.refrainSize}px` }}>R /: Anteprima ritornello :/</p>
+                        <p className="mt-1 text-black/75" style={{ fontSize: `${pdfOptions.bodySize}px` }}>La nota della sezione resta fuori dal testo e appare sul margine destro.</p>
+                        <p className="mt-2 text-right text-[#777]" style={{ fontSize: `${pdfOptions.noteSize}px` }}>(Ref x 2)</p>
+                      </div>
+                    </div>
+                  </section>
                 </div>
-                <div className="flex gap-3">
+
+                <div className="flex gap-3 border-t border-black/10 bg-white/70 px-5 py-4 sm:px-7">
                   <button
                     onClick={() => setPdfModalOpen(false)}
                     className="flex-1 py-2.5 rounded-xl border text-sm font-semibold hover:bg-[var(--hover-bg)] transition-colors"
