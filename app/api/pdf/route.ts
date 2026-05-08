@@ -290,6 +290,16 @@ function createStyles(options: ResolvedPdfOptions) {
     stanzaBlock: {
       marginBottom: 12,
     },
+    blockRow: {
+      flexDirection: "row",
+      alignItems: "flex-start",
+      width: "100%",
+      marginBottom: 12,
+    },
+    blockMain: {
+      flex: 1,
+      minWidth: 0,
+    },
     lyricRow: {
       flexDirection: "row",
       alignItems: "flex-start",
@@ -368,7 +378,7 @@ function createStyles(options: ResolvedPdfOptions) {
 
 function renderStanzaBlock(block: SongBlock, blockIdx: number, styles: ReturnType<typeof createStyles>): React.ReactElement {
   const elements: React.ReactElement[] = [];
-  let sectionNoteRendered = false;
+  const sideNote = block.note || block.lines.find((line) => line.note)?.note || null;
 
   block.lines.forEach((line, lineIdx) => {
     const { text: trimmed } = line;
@@ -378,9 +388,6 @@ function renderStanzaBlock(block: SongBlock, blockIdx: number, styles: ReturnTyp
       );
       return;
     }
-
-    const note = line.note || (!sectionNoteRendered ? block.note : null);
-    if (note) sectionNoteRendered = true;
 
     if (lineIdx === 0 && isStanzaStart(trimmed)) {
       const match = trimmed.match(/^(\d+\.?\s*)(.*)/);
@@ -394,8 +401,7 @@ function renderStanzaBlock(block: SongBlock, blockIdx: number, styles: ReturnTyp
               { style: styles.stanzaFirstLineMain },
               React.createElement(Text, { style: styles.stanzaNumber }, match[1]),
               React.createElement(Text, { style: styles.stanzaLineText }, match[2])
-            ),
-            note ? React.createElement(Text, { style: styles.noteOnSide }, `(${note})`) : null
+            )
           )
         );
       } else {
@@ -403,8 +409,7 @@ function renderStanzaBlock(block: SongBlock, blockIdx: number, styles: ReturnTyp
           React.createElement(
             View,
             { key: `l-${blockIdx}-${lineIdx}`, style: styles.lyricRow },
-            React.createElement(View, { style: styles.lyricMain }, React.createElement(Text, { style: styles.stanzaLineText }, trimmed)),
-            note ? React.createElement(Text, { style: styles.noteOnSide }, `(${note})`) : null
+            React.createElement(View, { style: styles.lyricMain }, React.createElement(Text, { style: styles.stanzaLineText }, trimmed))
           )
         );
       }
@@ -413,8 +418,7 @@ function renderStanzaBlock(block: SongBlock, blockIdx: number, styles: ReturnTyp
         React.createElement(
           View,
           { key: `l-${blockIdx}-${lineIdx}`, style: styles.lyricRow },
-          React.createElement(View, { style: styles.lyricMain }, React.createElement(Text, { style: styles.stanzaContinuationLine }, trimmed)),
-          note ? React.createElement(Text, { style: styles.noteOnSide }, `(${note})`) : null
+          React.createElement(View, { style: styles.lyricMain }, React.createElement(Text, { style: styles.stanzaContinuationLine }, trimmed))
         )
       );
     }
@@ -422,14 +426,15 @@ function renderStanzaBlock(block: SongBlock, blockIdx: number, styles: ReturnTyp
 
   return React.createElement(
     View,
-    { key: `block-${blockIdx}`, style: styles.stanzaBlock, wrap: false } as Record<string, unknown>,
-    ...elements
+    { key: `block-${blockIdx}`, style: styles.blockRow, wrap: false } as Record<string, unknown>,
+    React.createElement(View, { style: styles.blockMain }, ...elements),
+    sideNote ? React.createElement(Text, { style: styles.noteOnSide }, `(${sideNote})`) : null
   );
 }
 
 function renderRefrainBlock(block: SongBlock, blockIdx: number, styles: ReturnType<typeof createStyles>): React.ReactElement {
   const elements: React.ReactElement[] = [];
-  let sectionNoteRendered = false;
+  const sideNote = block.note || block.lines.find((line) => line.note)?.note || null;
 
   block.lines.forEach((line, lineIdx) => {
     const { text: trimmed } = line;
@@ -440,23 +445,20 @@ function renderRefrainBlock(block: SongBlock, blockIdx: number, styles: ReturnTy
       return;
     }
 
-    const note = line.note || (!sectionNoteRendered ? block.note : null);
-    if (note) sectionNoteRendered = true;
-
     elements.push(
       React.createElement(
         View,
         { key: `l-${blockIdx}-${lineIdx}`, style: styles.lyricRow },
-        React.createElement(View, { style: styles.lyricMain }, React.createElement(Text, { style: styles.refrainLine }, trimmed)),
-        note ? React.createElement(Text, { style: styles.noteOnSide }, `(${note})`) : null
+        React.createElement(View, { style: styles.lyricMain }, React.createElement(Text, { style: styles.refrainLine }, trimmed))
       )
     );
   });
 
   return React.createElement(
     View,
-    { key: `block-${blockIdx}`, style: styles.refrainBlock, wrap: false } as Record<string, unknown>,
-    ...elements
+    { key: `block-${blockIdx}`, style: [styles.blockRow, styles.refrainBlock], wrap: false } as Record<string, unknown>,
+    React.createElement(View, { style: styles.blockMain }, ...elements),
+    sideNote ? React.createElement(Text, { style: styles.noteOnSide }, `(${sideNote})`) : null
   );
 }
 
